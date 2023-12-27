@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Chess Board</title>
+  <style>
+    /* Your CSS styles here */
+    .board {
+      display: grid;
+      grid-template-columns: repeat(8, 50px);
+      grid-template-rows: repeat(8, 50px);
+      border: 2px solid black;
+      margin: auto;
+    }
+    .square {
+      width: 50px;
+      height: 50px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 24px;
+    }
+    .black {
+      background-color: #769656;
+    }
+    .white {
+      background-color: #eeeed2;
+    }
+    .piece {
+      cursor: pointer;
+      user-select: none;
+    }
+  </style>
+</head>
+<body>
+
+<div class="board" id="chessBoard">
+  <!-- The chessboard squares will be created dynamically using JavaScript -->
+</div>
+
+<script>
+  // Create the chessboard
+  const board = document.getElementById('chessBoard');
+  let isDragging = false;
+  let selectedPiece = null;
+
+  // Create squares
+  for (let i = 0; i < 64; i++) {
+    const square = document.createElement('div');
+    square.classList.add('square', (i + Math.floor(i / 8)) % 2 === 0 ? 'white' : 'black');
+    square.dataset.position = i;
+    square.addEventListener('mousedown', handlePieceMouseDown);
+    square.addEventListener('mouseup', handlePieceMouseUp);
+    board.appendChild(square);
+  }
+
+  // Create chess pieces
+  const pieces = ['♜', '♞', '♝', '♛', '♚', '♝', '♞', '♜'];
+  for (let i = 0; i < pieces.length; i++) {
+    const piece = document.createElement('div');
+    piece.textContent = pieces[i];
+    piece.classList.add('piece');
+    piece.draggable = true;
+    piece.addEventListener('dragstart', handlePieceDragStart);
+    piece.addEventListener('dragend', handlePieceDragEnd);
+    board.appendChild(piece);
+  }
+
+  function handlePieceMouseDown(event) {
+    isDragging = true;
+    const square = event.target;
+    const piece = square.querySelector('.piece');
+    if (piece && !selectedPiece) {
+      selectedPiece = piece;
+    }
+  }
+
+  function handlePieceMouseUp() {
+    isDragging = false;
+    selectedPiece = null;
+  }
+
+  function handlePieceDragStart(event) {
+    selectedPiece = event.target;
+  }
+
+  function handlePieceDragEnd() {
+    selectedPiece = null;
+  }
+
+  board.addEventListener('dragover', (event) => {
+    event.preventDefault();
+  });
+
+  board.addEventListener('drop', (event) => {
+    event.preventDefault();
+    if (selectedPiece && isDragging) {
+      const square = event.target;
+      if (square.classList.contains('square')) {
+        square.appendChild(selectedPiece);
+      }
+    }
+  });
+</script>
+
+</body>
+</html>

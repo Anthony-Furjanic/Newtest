@@ -5,12 +5,18 @@
   <title>Chess Board</title>
   <style>
     /* Your CSS styles here */
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
     .board {
       display: grid;
-      grid-template-columns: repeat(9, 50px); /* Added an extra column for coordinates */
-      grid-template-rows: repeat(8, 50px);
+      grid-template-columns: 50px repeat(8, 50px) 50px;
+      grid-template-rows: 50px repeat(8, 50px);
       border: 2px solid black;
-      margin: auto;
     }
     .square {
       width: 50px;
@@ -19,7 +25,6 @@
       justify-content: center;
       align-items: center;
       font-size: 24px;
-      position: relative;
     }
     .black {
       background-color: #769656;
@@ -36,20 +41,20 @@
       font-size: 30px;
       line-height: 50px;
     }
-    .coordinates {
+    .remove {
       display: flex;
       justify-content: center;
       align-items: center;
-      font-size: 14px;
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      color: #333;
-    }
-    .remove {
+      width: 50px;
+      height: 50px;
       border: 2px dashed #333;
+      font-size: 14px;
+    }
+    .label {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 18px;
     }
   </style>
 </head>
@@ -64,18 +69,27 @@
   const board = document.getElementById('chessBoard');
   let selectedPiece = null;
 
+  // Create letters for columns
+  const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+  for (let i = 0; i < 8; i++) {
+    const label = document.createElement('div');
+    label.textContent = letters[i];
+    label.classList.add('square', 'label');
+    board.appendChild(label);
+  }
+
   // Create squares and pieces
   for (let i = 0; i < 64; i++) {
     const square = document.createElement('div');
     square.classList.add('square', (i + Math.floor(i / 8)) % 2 === 0 ? 'white' : 'black');
     board.appendChild(square);
 
-    // Add coordinates
+    // Add row numbers
     if (i % 8 === 0) {
-      const coordinate = document.createElement('div');
-      coordinate.textContent = 8 - Math.floor(i / 8);
-      coordinate.classList.add('coordinates');
-      square.appendChild(coordinate);
+      const label = document.createElement('div');
+      label.textContent = 8 - Math.floor(i / 8);
+      label.classList.add('square', 'label');
+      board.appendChild(label);
     }
 
     if (i >= 8 && i < 16) {

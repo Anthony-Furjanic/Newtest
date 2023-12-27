@@ -162,4 +162,31 @@
   }
 
   function handlePieceDragStart(event) {
-    selectedPiece =
+        selectedPiece = event.target;
+    setTimeout(() => {
+      event.target.style.display = 'none';
+    }, 0);
+  }
+
+  function handlePieceDragEnd() {
+    selectedPiece.style.display = 'block';
+    selectedPiece = null;
+  }
+
+  board.addEventListener('dragover', (event) => {
+    event.preventDefault();
+  });
+
+  board.addEventListener('drop', (event) => {
+    event.preventDefault();
+    if (selectedPiece) {
+      const square = event.target;
+      if (square.classList.contains('square')) {
+        square.appendChild(selectedPiece);
+      }
+    }
+  });
+</script>
+
+</body>
+</html>

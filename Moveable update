@@ -62,12 +62,14 @@
       align-items: center;
       font-size: 18px;
       grid-column: 1;
+      grid-row: span 1;
     }
     .column-label {
       display: flex;
       justify-content: center;
       align-items: center;
       font-size: 18px;
+      grid-column: span 1;
       grid-row: 9;
     }
   </style>

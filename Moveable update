@@ -15,7 +15,7 @@
     .board {
       display: grid;
       grid-template-columns: 50px repeat(8, 50px) 50px;
-      grid-template-rows: 50px repeat(8, 50px);
+      grid-template-rows: repeat(8, 50px);
       border: 2px solid black;
     }
     .square {
@@ -56,6 +56,20 @@
       align-items: center;
       font-size: 18px;
     }
+    .row-label {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 18px;
+      grid-column: 1;
+    }
+    .column-label {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 18px;
+      grid-row: 9;
+    }
   </style>
 </head>
 <body>
@@ -74,7 +88,7 @@
   for (let i = 0; i < 8; i++) {
     const label = document.createElement('div');
     label.textContent = letters[i];
-    label.classList.add('square', 'label');
+    label.classList.add('square', 'label', 'column-label');
     board.appendChild(label);
   }
 
@@ -88,7 +102,7 @@
     if (i % 8 === 0) {
       const label = document.createElement('div');
       label.textContent = 8 - Math.floor(i / 8);
-      label.classList.add('square', 'label');
+      label.classList.add('square', 'label', 'row-label');
       board.appendChild(label);
     }
 

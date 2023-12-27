@@ -14,7 +14,7 @@
     }
     .board {
       display: grid;
-      grid-template-columns: 50px repeat(8, 50px) 50px;
+      grid-template-columns: 50px repeat(8, 50px);
       grid-template-rows: repeat(8, 50px);
       border: 2px solid black;
     }
@@ -25,6 +25,7 @@
       justify-content: center;
       align-items: center;
       font-size: 24px;
+      border: 1px solid #000; /* Adding border for each square */
     }
     .black {
       background-color: #769656;
@@ -56,21 +57,12 @@
       align-items: center;
       font-size: 18px;
     }
-    .row-label {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      font-size: 18px;
-      grid-column: 1;
-      grid-row: span 1;
-    }
     .column-label {
       display: flex;
       justify-content: center;
       align-items: center;
       font-size: 18px;
       grid-column: span 1;
-      grid-row: 9;
     }
   </style>
 </head>
@@ -104,7 +96,7 @@
     if (i % 8 === 0) {
       const label = document.createElement('div');
       label.textContent = 8 - Math.floor(i / 8);
-      label.classList.add('square', 'label', 'row-label');
+      label.classList.add('square', 'label');
       board.appendChild(label);
     }
 

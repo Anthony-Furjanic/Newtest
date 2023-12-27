@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Digital Scoreboard</title>
+  <style>
+    /* Your CSS styles here */
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin-top: 50px;
+    }
+    .team {
+      display: inline-block;
+      margin: 20px;
+    }
+    .score {
+      font-size: 48px;
+      margin-bottom: 10px;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      margin: 5px;
+    }
+    input[type="text"] {
+      margin-bottom: 10px;
+      padding: 5px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Digital Scoreboard</h2>
+  
+  <div class="team" id="team1">
+    <input type="text" id="teamName1" placeholder="Enter Team 1 Name">
+    <h3>Team 1</h3>
+    <p class="score" id="score1">0</p>
+    <button onclick="increaseScore('score1')">+1</button>
+    <button onclick="decreaseScore('score1')">-1</button>
+  </div>
+
+  <div class="team" id="team2">
+    <input type="text" id="teamName2" placeholder="Enter Team 2 Name">
+    <h3>Team 2</h3>
+    <p class="score" id="score2">0</p>
+    <button onclick="increaseScore('score2')">+1</button>
+    <button onclick="decreaseScore('score2')">-1</button>
+  </div>
+
+  <script>
+    function increaseScore(scoreId) {
+      var scoreElement = document.getElementById(scoreId);
+      var currentScore = parseInt(scoreElement.textContent);
+      scoreElement.textContent = currentScore + 1;
+    }
+
+    function decreaseScore(scoreId) {
+      var scoreElement = document.getElementById(scoreId);
+      var currentScore = parseInt(scoreElement.textContent);
+      if (currentScore > 0) {
+        scoreElement.textContent = currentScore - 1;
+      }
+    }
+  </script>
+</body>
+</html>

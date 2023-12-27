@@ -14,7 +14,7 @@
     }
     .board {
       display: grid;
-      grid-template-columns: repeat(9, 50px); /* Increase columns by 1 for letter labels */
+      grid-template-columns: repeat(8, 50px);
       grid-template-rows: repeat(8, 50px);
       border: 2px solid black;
     }
@@ -66,6 +66,14 @@
       grid-column: span 1;
       grid-row: 1; /* Place letters in the first row */
     }
+    .row-label {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 18px;
+      grid-column: 1; /* Place numbers in the first column */
+      grid-row: span 1;
+    }
   </style>
 </head>
 <body>
@@ -80,8 +88,8 @@
   let selectedPiece = null;
 
   // Create letters for columns
-  const letters = ['', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', '']; // Add an empty element at both ends
-  for (let i = 0; i < 10; i++) { // Update the loop to iterate 10 times
+  const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+  for (let i = 0; i < 8; i++) {
     const label = document.createElement('div');
     label.textContent = letters[i];
     label.classList.add('square', 'label', 'column-label');
@@ -98,7 +106,7 @@
     if (i % 8 === 0) {
       const label = document.createElement('div');
       label.textContent = 8 - Math.floor(i / 8);
-      label.classList.add('square', 'label');
+      label.classList.add('square', 'label', 'row-label');
       board.appendChild(label);
     }
 
@@ -154,31 +162,4 @@
   }
 
   function handlePieceDragStart(event) {
-    selectedPiece = event.target;
-    setTimeout(() => {
-      event.target.style.display = 'none';
-    }, 0);
-  }
-
-  function handlePieceDragEnd() {
-    selectedPiece.style.display = 'block';
-    selectedPiece = null;
-  }
-
-  board.addEventListener('dragover', (event) => {
-    event.preventDefault();
-  });
-
-  board.addEventListener('drop', (event) => {
-    event.preventDefault();
-    if (selectedPiece) {
-      const square = event.target;
-      if (square.classList.contains('square')) {
-        square.appendChild(selectedPiece);
-      }
-    }
-  });
-</script>
-
-</body>
-</html>
+    selectedPiece =

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Chess Board</title>
+  <style>
+    /* Your CSS styles here */
+    .board {
+      display: grid;
+      grid-template-columns: repeat(9, 50px); /* Added an extra column for coordinates */
+      grid-template-rows: repeat(8, 50px);
+      border: 2px solid black;
+      margin: auto;
+    }
+    .square {
+      width: 50px;
+      height: 50px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 24px;
+      position: relative;
+    }
+    .black {
+      background-color: #769656;
+    }
+    .white {
+      background-color: #eeeed2;
+    }
+    .piece {
+      cursor: pointer;
+      user-select: none;
+      width: 100%;
+      height: 100%;
+      text-align: center;
+      font-size: 30px;
+      line-height: 50px;
+    }
+    .coordinates {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 14px;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      color: #333;
+    }
+    .remove {
+      border: 2px dashed #333;
+    }
+  </style>
+</head>
+<body>
+
+<div class="board" id="chessBoard">
+  <!-- The chessboard squares will be created dynamically using JavaScript -->
+</div>
+
+<script>
+  // Create the chessboard
+  const board = document.getElementById('chessBoard');
+  let selectedPiece = null;
+
+  // Create squares and pieces
+  for (let i = 0; i < 64; i++) {
+    const square = document.createElement('div');
+    square.classList.add('square', (i + Math.floor(i / 8)) % 2 === 0 ? 'white' : 'black');
+    board.appendChild(square);
+
+    // Add coordinates
+    if (i % 8 === 0) {
+      const coordinate = document.createElement('div');
+      coordinate.textContent = 8 - Math.floor(i / 8);
+      coordinate.classList.add('coordinates');
+      square.appendChild(coordinate);
+    }
+
+    if (i >= 8 && i < 16) {
+      const piece = createPiece('♟');
+      square.appendChild(piece);
+    } else if (i >= 48 && i < 56) {
+      const piece = createPiece('♙');
+      square.appendChild(piece);
+    } else if (i === 0 || i === 7) {
+      const piece = createPiece('♖');
+      square.appendChild(piece);
+    } else if (i === 1 || i === 6) {
+      const piece = createPiece('♘');
+      square.appendChild(piece);
+    } else if (i === 2 || i === 5) {
+      const piece = createPiece('♗');
+      square.appendChild(piece);
+    } else if (i === 3) {
+      const piece = createPiece('♕');
+      square.appendChild(piece);
+    } else if (i === 4) {
+      const piece = createPiece('♔');
+      square.appendChild(piece);
+    }
+  }
+
+  // Add a space to remove pieces
+  const removeSpace = document.createElement('div');
+  removeSpace.textContent = 'Remove Pieces';
+  removeSpace.classList.add('square', 'remove');
+  board.appendChild(removeSpace);
+
+  removeSpace.addEventListener('dragover', (event) => {
+    event.preventDefault();
+  });
+
+  removeSpace.addEventListener('drop', (event) => {
+    event.preventDefault();
+    if (selectedPiece) {
+      selectedPiece.remove();
+    }
+  });
+
+  function createPiece(pieceType) {
+    const piece = document.createElement('div');
+    piece.textContent = pieceType;
+    piece.classList.add('piece');
+    piece.draggable = true;
+    piece.addEventListener('dragstart', handlePieceDragStart);
+    piece.addEventListener('dragend', handlePieceDragEnd);
+    return piece;
+  }
+
+  function handlePieceDragStart(event) {
+    selectedPiece = event.target;
+    setTimeout(() => {
+      event.target.style.display = 'none';
+    }, 0);
+  }
+
+  function handlePieceDragEnd() {
+    selectedPiece.style.display = 'block';
+    selectedPiece = null;
+  }
+
+  board.addEventListener('dragover', (event) => {
+    event.preventDefault();
+  });
+
+  board.addEventListener('drop', (event) => {
+    event.preventDefault();
+    if (selectedPiece) {
+      const square = event.target;
+      if (square.classList.contains('square')) {
+        square.appendChild(selectedPiece);
+      }
+    }
+  });
+</script>
+
+</body>
+</html>

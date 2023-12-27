@@ -14,7 +14,7 @@
     }
     .board {
       display: grid;
-      grid-template-columns: 50px repeat(8, 50px);
+      grid-template-columns: repeat(9, 50px); /* Increase columns by 1 for letter labels */
       grid-template-rows: repeat(8, 50px);
       border: 2px solid black;
     }
@@ -56,6 +56,7 @@
       justify-content: center;
       align-items: center;
       font-size: 18px;
+      grid-column: span 1;
     }
     .column-label {
       display: flex;
@@ -63,6 +64,7 @@
       align-items: center;
       font-size: 18px;
       grid-column: span 1;
+      grid-row: 1; /* Place letters in the first row */
     }
   </style>
 </head>
@@ -78,8 +80,8 @@
   let selectedPiece = null;
 
   // Create letters for columns
-  const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
-  for (let i = 0; i < 8; i++) {
+  const letters = ['', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', '']; // Add an empty element at both ends
+  for (let i = 0; i < 10; i++) { // Update the loop to iterate 10 times
     const label = document.createElement('div');
     label.textContent = letters[i];
     label.classList.add('square', 'label', 'column-label');

@@ -26,7 +26,7 @@
             resultDiv.innerHTML = "";  // Clear previous result
 
             // Regular expression to match questions with a number, optional letter (like 2a., 2b., etc.), and colon
-            const questionPattern = /^\d+[a-zA-Z]?\.\s+.*?\:/gm;
+            const questionPattern = /^\d+[a-zA-Z]?\.\s*.*?\:/gm;
             const questions = textarea.match(questionPattern);
 
             if (!questions) {
@@ -39,7 +39,7 @@
 
             // Loop through each line to check if each question has an answer
             lines.forEach((line, index) => {
-                if (line.match(/^\d+[a-zA-Z]?\.\s+.*?\:/) && !line.split(':')[1].trim()) {
+                if (line.match(/^\d+[a-zA-Z]?\.\s*.*?\:/) && !line.split(':')[1]?.trim()) {
                     missingAnswers.push(index + 1); // Add the line number (1-based)
                 }
             });

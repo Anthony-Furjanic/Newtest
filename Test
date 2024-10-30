@@ -1,107 +1,59 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Chess Board</title>
-  <style>
-    /* Your CSS styles here */
-    .board {
-      display: grid;
-      grid-template-columns: repeat(8, 50px);
-      grid-template-rows: repeat(8, 50px);
-      border: 2px solid black;
-      margin: auto;
-    }
-    .square {
-      width: 50px;
-      height: 50px;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      font-size: 24px;
-    }
-    .black {
-      background-color: #769656;
-    }
-    .white {
-      background-color: #eeeed2;
-    }
-    .piece {
-      cursor: pointer;
-      user-select: none;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Question Answer Checker</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #questions { width: 100%; height: 150px; }
+        #result { margin-top: 15px; color: red; }
+    </style>
 </head>
 <body>
 
-<div class="board" id="chessBoard">
-  <!-- The chessboard squares will be created dynamically using JavaScript -->
-</div>
+    <h2>Question Answer Checker</h2>
+    <p>Paste your questions below:</p>
+    <textarea id="questions" placeholder="Paste questions here..."></textarea><br>
+    <button onclick="checkQuestions()">Check Now</button>
 
-<script>
-  // Create the chessboard
-  const board = document.getElementById('chessBoard');
-  let isDragging = false;
-  let selectedPiece = null;
+    <div id="result"></div>
 
-  // Create squares
-  for (let i = 0; i < 64; i++) {
-    const square = document.createElement('div');
-    square.classList.add('square', (i + Math.floor(i / 8)) % 2 === 0 ? 'white' : 'black');
-    square.dataset.position = i;
-    square.addEventListener('mousedown', handlePieceMouseDown);
-    square.addEventListener('mouseup', handlePieceMouseUp);
-    board.appendChild(square);
-  }
+    <script>
+        function checkQuestions() {
+            const textarea = document.getElementById("questions").value;
+            const resultDiv = document.getElementById("result");
+            resultDiv.innerHTML = "";  // Clear previous result
 
-  // Create chess pieces
-  const pieces = ['♜', '♞', '♝', '♛', '♚', '♝', '♞', '♜'];
-  for (let i = 0; i < pieces.length; i++) {
-    const piece = document.createElement('div');
-    piece.textContent = pieces[i];
-    piece.classList.add('piece');
-    piece.draggable = true;
-    piece.addEventListener('dragstart', handlePieceDragStart);
-    piece.addEventListener('dragend', handlePieceDragEnd);
-    board.appendChild(piece);
-  }
+            // Regular expression to match questions with a number at the beginning, like 1. or 3:
+            const questionPattern = /^\d+\.\s*.*?\:/gm;
+            const questions = textarea.match(questionPattern);
 
-  function handlePieceMouseDown(event) {
-    isDragging = true;
-    const square = event.target;
-    const piece = square.querySelector('.piece');
-    if (piece && !selectedPiece) {
-      selectedPiece = piece;
-    }
-  }
+            if (!questions) {
+                resultDiv.innerHTML = "No questions detected.";
+                return;
+            }
 
-  function handlePieceMouseUp() {
-    isDragging = false;
-    selectedPiece = null;
-  }
+            const lines = textarea.split('\n');
+            let missingAnswers = [];
 
-  function handlePieceDragStart(event) {
-    selectedPiece = event.target;
-  }
+            // Loop through each line to check if each question has an answer
+            lines.forEach((line, index) => {
+                if (line.match(/^\d+\.\s*.*?\:/) && !line.split(':')[1].trim()) {
+                    missingAnswers.push(index + 1); // Add the line number (1-based)
+                }
+            });
 
-  function handlePieceDragEnd() {
-    selectedPiece = null;
-  }
-
-  board.addEventListener('dragover', (event) => {
-    event.preventDefault();
-  });
-
-  board.addEventListener('drop', (event) => {
-    event.preventDefault();
-    if (selectedPiece && isDragging) {
-      const square = event.target;
-      if (square.classList.contains('square')) {
-        square.appendChild(selectedPiece);
-      }
-    }
-  });
-</script>
+            // Display results
+            if (missingAnswers.length > 0) {
+                resultDiv.innerHTML = "Unanswered questions on line(s): " + missingAnswers.join(', ');
+            } else {
+                resultDiv.innerHTML = "All questions are answered!";
+            }
+        }
+    </script>
 
 </body>
 </html>
+
+

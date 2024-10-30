@@ -41,6 +41,7 @@
             lines.forEach((line, index) => {
                 if (line.match(/^\d+[a-zA-Z]?\.\s*.*?:/)) {
                     const parts = line.split(':');
+                    // Check if there's an answer after the colon and if it contains non-space characters
                     if (parts.length < 2 || !parts[1].trim()) {
                         missingAnswers.push(index + 1); // Add the line number (1-based)
                     }

@@ -25,32 +25,43 @@
             const resultDiv = document.getElementById("result");
             resultDiv.innerHTML = "";  // Clear previous result
 
-            // Regular expression to match questions with a number, optional letter (like 2a., 2b., etc.), and colon
-            const questionPattern = /^\d+[a-zA-Z]?\.\s*.*?:/gm;
-            const questions = textarea.match(questionPattern);
-
-            if (!questions) {
-                resultDiv.innerHTML = "No questions detected.";
-                return;
-            }
-
+            // Split the input into lines
             const lines = textarea.split('\n');
             let missingAnswers = [];
+            let questionIndex = 1; // Tracks the question number to display
+            let questionStarted = false; // Track if a question has started
 
             // Loop through each line to check if each question has an answer
-            lines.forEach((line, index) => {
-                if (line.match(/^\d+[a-zA-Z]?\.\s*.*?:/)) {
-                    const parts = line.split(':');
-                    // Check if there's an answer after the colon and if it contains non-space characters
-                    if (parts.length < 2 || !parts[1].trim()) {
-                        missingAnswers.push(index + 1); // Add the line number (1-based)
+            for (let i = 0; i < lines.length; i++) {
+                const trimmedLine = lines[i].trim(); // Trim whitespace from the line
+
+                // Check for questions formatted like "1.", "2a.", etc.
+                if (/^\d+[a-zA-Z]?\.\s.*?:/.test(trimmedLine)) {
+                    const parts = trimmedLine.split(':');
+                    const answerLine = lines[i + 1]?.trim(); // Get the next line as possible answer
+                    const answer = parts[1]?.trim() || ''; // Answer after the colon, if present
+
+                    // Combine answer from current and next line if the next line exists
+                    const fullAnswer = answer ? answer : answerLine;
+
+                    // If the combined answer is empty (or just whitespace), add the questionIndex to missingAnswers
+                    if (!fullAnswer || !fullAnswer.trim()) {
+                        missingAnswers.push(questionIndex); // Use questionIndex instead of line index
+                    }
+
+                    questionIndex++; // Increment the question index for the next question
+                    questionStarted = true; // Mark that a question has started
+                } else if (questionStarted) {
+                    // If a question was started, and we find a blank line, we need to reset the flag
+                    if (trimmedLine === '') {
+                        questionStarted = false;
                     }
                 }
-            });
+            }
 
             // Display results
             if (missingAnswers.length > 0) {
-                resultDiv.innerHTML = "Unanswered questions on line(s): " + missingAnswers.join(', ');
+                resultDiv.innerHTML = "Unanswered questions: " + missingAnswers.join(', ');
             } else {
                 resultDiv.innerHTML = "All questions are answered!";
             }

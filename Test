@@ -35,4 +35,35 @@
             lines.forEach((line, index) => {
                 const trimmedLine = line.trim();
 
-                // Check if the line starts with a question number like "1.", "2a.", etc
+                // Check if the line starts with a question number like "1.", "2a.", etc.
+                if (/^\d+[a-zA-Z]?\.\s.*?:/.test(trimmedLine)) {
+                    // If there's a previous question without an answer, mark it as unanswered
+                    if (questionNumber && !hasAnswer) {
+                        missingAnswers.push(questionNumber);  // Only push question number
+                    }
+
+                    // Start tracking the new question
+                    questionNumber = trimmedLine.split(':')[0];  // Get question number before the colon
+                    hasAnswer = trimmedLine.split(':')[1]?.trim().length > 0;  // Check if there's an answer right after the colon
+                } else if (questionNumber && !hasAnswer && trimmedLine.length > 0) {
+                    // If the line doesn't start a new question but contains text, consider it as an answer to the current question
+                    hasAnswer = true;
+                }
+            });
+
+            // Check the last question in the list
+            if (questionNumber && !hasAnswer) {
+                missingAnswers.push(questionNumber);
+            }
+
+            // Display results
+            if (missingAnswers.length > 0) {
+                resultDiv.innerHTML = "Unanswered questions: " + missingAnswers.join(', ');
+            } else {
+                resultDiv.innerHTML = "All questions are answered!";
+            }
+        }
+    </script>
+
+</body>
+</html>

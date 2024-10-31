@@ -28,42 +28,32 @@
             // Split the input into lines
             const lines = textarea.split('\n');
             let missingAnswers = [];
-            let questionIndex = 1; // Tracks the question number to display
-            let questionStarted = false; // Track if a question has started
-            let answerFound = false; // Track if an answer is found for the current question
+            let questionNumber = null;  // Stores the current question number (like "1.", "2a.")
+            let hasAnswer = false;  // Tracks if the current question has an answer
 
-            // Loop through each line to check if each question has an answer
-            for (let i = 0; i < lines.length; i++) {
-                const trimmedLine = lines[i].trim(); // Trim whitespace from the line
+            // Process each line
+            lines.forEach((line, index) => {
+                const trimmedLine = line.trim();
 
-                // Check for questions formatted like "1.", "2a.", etc.
+                // Check if the line starts with a question number like "1.", "2a.", etc.
                 if (/^\d+[a-zA-Z]?\.\s.*?:/.test(trimmedLine)) {
-                    const parts = trimmedLine.split(':');
-                    const currentAnswer = parts[1]?.trim() || ''; // Get answer from current line
-
-                    // Check if the next lines contain an answer
-                    answerFound = currentAnswer.length > 0;
-
-                    // Look ahead to find an answer on the next non-empty line
-                    for (let j = i + 1; j < lines.length; j++) {
-                        const nextLine = lines[j].trim();
-                        if (nextLine !== '') { // Stop looking at blank lines
-                            answerFound = answerFound || nextLine.length > 0; // Combine answer findings
-                            break; // Break after finding the first non-empty line
-                        }
+                    // If there's a previous question without an answer, mark it as unanswered
+                    if (questionNumber && !hasAnswer) {
+                        missingAnswers.push(questionNumber);
                     }
 
-                    // If no answer is found, add the questionIndex to missingAnswers
-                    if (!answerFound) {
-                        missingAnswers.push(questionIndex);
-                    }
-
-                    questionIndex++; // Increment the question index for the next question
-                    questionStarted = true; // Mark that a question has started
-                } else if (questionStarted && trimmedLine === '') {
-                    // If a question was started, and we find a blank line, we need to reset the flag
-                    questionStarted = false;
+                    // Start tracking the new question
+                    questionNumber = trimmedLine.split(':')[0];  // Get question number before the colon
+                    hasAnswer = trimmedLine.split(':')[1]?.trim().length > 0;  // Check if there's an answer right after the colon
+                } else if (questionNumber && !hasAnswer && trimmedLine.length > 0) {
+                    // If the line doesn't start a new question but contains text, consider it as an answer to the current question
+                    hasAnswer = true;
                 }
+            });
+
+            // Check the last question in the list
+            if (questionNumber && !hasAnswer) {
+                missingAnswers.push(questionNumber);
             }
 
             // Display results

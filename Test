@@ -32,7 +32,7 @@
             let hasAnswer = false;  // Tracks if the current question has an answer
 
             // Process each line
-            lines.forEach((line, index) => {
+            lines.forEach((line) => {
                 const trimmedLine = line.trim();
 
                 // Check if the line starts with a question number like "1.", "2a.", etc.
@@ -43,11 +43,23 @@
                     }
 
                     // Start tracking the new question
-                    questionNumber = trimmedLine.split(':')[0];  // Get question number before the colon
-                    hasAnswer = trimmedLine.split(':')[1]?.trim().length > 0;  // Check if there's an answer right after the colon
+                    questionNumber = trimmedLine.match(/^\d+[a-zA-Z]?\./)[0];  // Extract question number (e.g., "1.", "2a.")
+                    
+                    // Count the number of colons
+                    const colonCount = (trimmedLine.match(/:/g) || []).length;
+
+                    // Determine if there's an answer based on the number of colons
+                    if (colonCount === 1) {
+                        // If only one colon, the answer is after the first colon
+                        hasAnswer = trimmedLine.substring(trimmedLine.indexOf(':') + 1).trim().length > 0;
+                    } else if (colonCount >= 2) {
+                        // If there are two or more colons, the answer is after the second colon
+                        const secondColonIndex = trimmedLine.indexOf(':', trimmedLine.indexOf(':') + 1);
+                        hasAnswer = trimmedLine.substring(secondColonIndex + 1).trim().length > 0;
+                    }
                 } else if (questionNumber && !hasAnswer && trimmedLine.length > 0) {
                     // If the line doesn't start a new question but contains text, consider it as an answer to the current question
-                    hasAnswer = true;
+                    hasAnswer = true;  // Assume there's an answer if the user adds more text
                 }
             });
 

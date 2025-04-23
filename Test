@@ -4,28 +4,34 @@ import json
 from tkinter import Tk, filedialog, simpledialog
 
 # === CONFIGURATION ===
-USER_TAG = "user"  # Change this if the tag ever changes from 'user'
-COLUMN_NAME = "Ful tran"  # Excel column to read from
+USER_TAG = "user"  # Change this to match the speaker tag you're extracting
+COLUMN_NAME = "Ful tran"
 DEFAULT_FILENAME = "new_output_test.json"
 # ======================
+
+# Function to extract the user's line
+def extract_user_phrase(text, user_tag="user"):
+    # Regex: user:(grab everything non-greedy until a new speaker appears like apple: or EOF)
+    pattern = re.compile(rf"{user_tag}:(.*?)(?:\s+\w+:|$)", re.IGNORECASE)
+    match = pattern.search(text)
+    if match:
+        return match.group(1).strip()
+    return None
 
 # === GUI Setup ===
 root = Tk()
 root.withdraw()
 
-# Ask user for custom answer phrase
 custom_answer = simpledialog.askstring("Custom Answer", "Enter the phrase to include in the answer (e.g., TEST1):")
 if not custom_answer:
     print("No input provided. Exiting.")
     exit()
 
-# Select Excel file
 excel_file_path = filedialog.askopenfilename(title="Select Excel file", filetypes=[("Excel files", "*.xlsx *.xls")])
 if not excel_file_path:
     print("No file selected. Exiting.")
     exit()
 
-# Select save path
 save_path = filedialog.asksaveasfilename(
     title="Save JSON output as...",
     defaultextension=".json",
@@ -41,34 +47,24 @@ df = pd.read_excel(excel_file_path)
 output_data = []
 
 for raw in df[COLUMN_NAME].dropna():
-    lines = str(raw).strip().splitlines()
-    if len(lines) >= 3:
-        # Extract 3rd line
-        target_line = lines[2].strip()
-
-        # Match only if it starts with the user tag (e.g., "user:")
-        if target_line.lower().startswith(f"{USER_TAG.lower()}:"):
-            cleaned = re.sub(f'^{USER_TAG}[:\s]*', '', target_line, flags=re.IGNORECASE).strip()
-
-            block = {
-                "QAPairs": [
-                    {"Question": "", "Answer": [".*", ".*"], "clock": 60, "ops": "mathces", "Negative": False},
-                    {"Question": cleaned, "Answer": [f"I see you {custom_answer}"], "Tim": 60, "Ope": "mathces", "Neg": False}
-                ],
-                "Sub": "sub",
-                "dom": "",
-                "timot": 300,
-                "initb": {}
-            }
-
-            output_data.append(block)
-        else:
-            print(f"Skipping line: Third line doesn't start with '{USER_TAG}:' — '{target_line}'")
+    phrase = extract_user_phrase(str(raw), user_tag=USER_TAG)
+    if phrase:
+        block = {
+            "QAPairs": [
+                {"Question": "", "Answer": [".*", ".*"], "clock": 60, "ops": "mathces", "Negative": False},
+                {"Question": phrase, "Answer": [f"I see you {custom_answer}"], "Tim": 60, "Ope": "mathces", "Neg": False}
+            ],
+            "Sub": "sub",
+            "dom": "",
+            "timot": 300,
+            "initb": {}
+        }
+        output_data.append(block)
     else:
-        print(f"Skipping cell: Less than 3 lines found — '{raw}'")
+        print(f"Skipped: No phrase found in → {raw}")
 
-# === Save Output as JSON ===
+# === Save Output ===
 with open(save_path, "w", encoding="utf-8") as f:
     json.dump(output_data, f, indent=4)
 
-print(f"Generated {len(output_data)} entries. Data written to: {save_path}")
+print(f"Done! Extracted {len(output_data)} entries. Saved to {save_path}")

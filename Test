@@ -4,8 +4,8 @@ import json
 from tkinter import Tk, filedialog, simpledialog
 
 # === CONFIGURATION ===
-ACTOR_TAG = "en-us"  # Change this to whatever prefix is used instead of 'en-us' later
-COLUMN_NAME = "Ful tran"  # You can change this to match the column you want
+USER_TAG = "user"  # Change this if the tag ever changes from 'user'
+COLUMN_NAME = "Ful tran"  # Excel column to read from
 DEFAULT_FILENAME = "new_output_test.json"
 # ======================
 
@@ -46,9 +46,9 @@ for raw in df[COLUMN_NAME].dropna():
         # Extract 3rd line
         target_line = lines[2].strip()
 
-        # Match only if it starts with the actor tag (e.g., "en-us:")
-        if target_line.lower().startswith(f"{ACTOR_TAG.lower()}:"):
-            cleaned = re.sub(f'^{ACTOR_TAG}[:\s]*', '', target_line, flags=re.IGNORECASE).strip()
+        # Match only if it starts with the user tag (e.g., "user:")
+        if target_line.lower().startswith(f"{USER_TAG.lower()}:"):
+            cleaned = re.sub(f'^{USER_TAG}[:\s]*', '', target_line, flags=re.IGNORECASE).strip()
 
             block = {
                 "QAPairs": [
@@ -63,7 +63,7 @@ for raw in df[COLUMN_NAME].dropna():
 
             output_data.append(block)
         else:
-            print(f"Skipping line: Third line doesn't start with '{ACTOR_TAG}:' — '{target_line}'")
+            print(f"Skipping line: Third line doesn't start with '{USER_TAG}:' — '{target_line}'")
     else:
         print(f"Skipping cell: Less than 3 lines found — '{raw}'")
 

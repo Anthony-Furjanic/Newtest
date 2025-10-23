@@ -1,104 +1,56 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Chess Board</title>
-  <style>
-    /* Your CSS styles here */
-    .board {
-      display: grid;
-      grid-template-columns: repeat(8, 50px);
-      grid-template-rows: repeat(8, 50px);
-      border: 2px solid black;
-      margin: auto;
-    }
-    .square {
-      width: 50px;
-      height: 50px;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      font-size: 24px;
-    }
-    .black {
-      background-color: #769656;
-    }
-    .white {
-      background-color: #eeeed2;
-    }
-    .piece {
-      cursor: pointer;
-      user-select: none;
-      width: 100%;
-      height: 100%;
-      text-align: center;
-      font-size: 30px;
-      line-height: 50px;
-    }
-  </style>
-</head>
-<body>
+import pandas as pd
+from datetime import datetime
 
-<div class="board" id="chessBoard">
-  <!-- The chessboard squares will be created dynamically using JavaScript -->
-</div>
+# --- CONFIG ---
+# Map domain names to file paths
+domain_files = {
+    "D": "domain_D.xlsx",
+    "G": "domain_G.xlsx",
+    "H": "domain_H.xlsx"
+}
 
-<script>
-  // Create the chessboard
-  const board = document.getElementById('chessBoard');
-  let selectedPiece = null;
+# Output file name with timestamp
+timestamp = datetime.now().strftime("%Y-%m-%d_%Hh%Mm")
+output_file = f"Output_{timestamp}.xlsx"
 
-  // Create squares and pieces
-  for (let i = 0; i < 64; i++) {
-    const square = document.createElement('div');
-    square.classList.add('square', (i + Math.floor(i / 8)) % 2 === 0 ? 'white' : 'black');
-    board.appendChild(square);
+# --- FUNCTION TO PROCESS EACH DOMAIN ---
+def process_domain(domain_name, filepath):
+    df = pd.read_excel(filepath)
+    
+    # Drop rows where column 3 (index 2) is blank
+    df = df.dropna(subset=[df.columns[2]])
+    
+    # Ensure numeric columns
+    df[df.columns[3]] = pd.to_numeric(df[df.columns[3]], errors='coerce')
+    df[df.columns[5]] = pd.to_numeric(df[df.columns[5]], errors='coerce')
+    
+    # Drop rows with NaN in weight or score columns
+    df = df.dropna(subset=[df.columns[3], df.columns[5]])
+    
+    # Weighted average calculation
+    weighted_avg = (df[df.columns[3]] * df[df.columns[5]]).sum() / df[df.columns[3]].sum()
+    
+    # Append weighted average to bottom of sheet
+    summary_row = pd.DataFrame([[None] * (len(df.columns) - 2) + ["Weighted Average", round(weighted_avg, 2)]],
+                               columns=df.columns)
+    df_out = pd.concat([df, summary_row], ignore_index=True)
+    
+    return df_out, round(weighted_avg, 2)
 
-    if (i >= 8 && i < 16) {
-      const piece = createPiece('♟');
-      square.appendChild(piece);
-    } else if (i >= 48 && i < 56) {
-      const piece = createPiece('♙');
-      square.appendChild(piece);
-    }
-  }
+# --- MAIN PROCESS ---
+summary_data = []
 
-  function createPiece(pieceType) {
-    const piece = document.createElement('div');
-    piece.textContent = pieceType;
-    piece.classList.add('piece');
-    piece.draggable = true;
-    piece.addEventListener('dragstart', handlePieceDragStart);
-    piece.addEventListener('dragend', handlePieceDragEnd);
-    return piece;
-  }
+with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+    for domain, filepath in domain_files.items():
+        df_out, weighted_avg = process_domain(domain, filepath)
+        df_out.to_excel(writer, sheet_name=domain, index=False)
+        summary_data.append((domain, weighted_avg))
+    
+    # Create summary sheet
+    summary_df = pd.DataFrame(summary_data, columns=["Domain", "Weighted Avg"])
+    overall_avg = summary_df["Weighted Avg"].mean().round(2)
+    summary_df.loc[len(summary_df)] = ["", overall_avg]
+    
+    summary_df.to_excel(writer, sheet_name="Summary", index=False)
 
-  function handlePieceDragStart(event) {
-    selectedPiece = event.target;
-    setTimeout(() => {
-      event.target.style.display = 'none';
-    }, 0);
-  }
-
-  function handlePieceDragEnd() {
-    selectedPiece.style.display = 'block';
-    selectedPiece = null;
-  }
-
-  board.addEventListener('dragover', (event) => {
-    event.preventDefault();
-  });
-
-  board.addEventListener('drop', (event) => {
-    event.preventDefault();
-    if (selectedPiece) {
-      const square = event.target;
-      if (square.classList.contains('square')) {
-        square.appendChild(selectedPiece);
-      }
-    }
-  });
-</script>
-
-</body>
-</html>
+print(f"✅ All done! File saved as {output_file}")

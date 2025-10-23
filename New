@@ -12,11 +12,11 @@ DOMAIN_KEYWORDS = {
 
 EXCLUDE_PHRASES = ["apple pie", "cherry pie", "pumpkin pie"]
 
-# Weighted average columns (0-based)
-WEIGHT_COLUMN_INDEX = 3   # D column
-VALUE_COLUMN_INDEX = 5    # F column
+# Column that holds trigger words / "Null"
+TARGET_COLUMN_INDEX = 4   # zero-based → 5th column (adjust if needed)
 
 # ============================================== #
+
 
 def detect_domain_from_filename(filename):
     """Return domain name if keyword found in filename; otherwise None."""
@@ -28,9 +28,8 @@ def detect_domain_from_filename(filename):
 
 
 def read_and_process_tsv(file_path, domain_name):
-    """Read TSV, separate thresh/opps rows, compute weighted avg."""
+    """Read TSV, separate kept vs. opps rows."""
     thresh_rows, opps_rows = [], []
-    weights, values = [], []
 
     with open(file_path, "r", encoding="utf-8-sig") as f:
         reader = csv.reader(f, delimiter="\t")
@@ -40,39 +39,25 @@ def read_and_process_tsv(file_path, domain_name):
 
             text_line = "\t".join(row)
 
-            # Ensure the 4th column exists
-            if len(row) <= 3:
-                print(f"🚨 ERROR: Missing 4th column in {domain_name}, line {i}")
+            # Ensure the target column exists
+            if len(row) <= TARGET_COLUMN_INDEX:
+                print(f"🚨 ERROR: Missing column {TARGET_COLUMN_INDEX+1} in {domain_name}, line {i}")
                 continue
 
-            col4 = row[3].strip().lower()
+            col_value = row[TARGET_COLUMN_INDEX].strip().lower()
 
             # Opps logic
-            if (
-                col4 == "null"
-                or any(phrase.lower() in col4 for phrase in EXCLUDE_PHRASES)
-            ):
+            if col_value == "null" or any(phrase.lower() in col_value for phrase in EXCLUDE_PHRASES):
                 opps_rows.append(text_line)
                 continue
 
             # Otherwise keep
             thresh_rows.append(text_line)
 
-            # Weighted avg collection
-            try:
-                weight = float(row[WEIGHT_COLUMN_INDEX])
-                value = float(row[VALUE_COLUMN_INDEX])
-                weights.append(weight)
-                values.append(value)
-            except (ValueError, IndexError):
-                # skip rows with invalid numeric data
-                continue
+    total_kept = len(thresh_rows)
+    total_opps = len(opps_rows)
 
-    weighted_avg = None
-    if weights and sum(weights) != 0:
-        weighted_avg = (sum(w * v for w, v in zip(weights, values)) / sum(weights)) * 100
-
-    return thresh_rows, opps_rows, weighted_avg
+    return thresh_rows, opps_rows, total_kept, total_opps
 
 
 def main():
@@ -96,32 +81,39 @@ def main():
                 "Enter domain name manually (or press Enter to skip): "
             ) or "UnknownDomain"
 
-        thresh_rows, opps_rows, weighted_avg = read_and_process_tsv(file_path, domain_name)
+        thresh_rows, opps_rows, total_kept, total_opps = read_and_process_tsv(file_path, domain_name)
 
         results.append({
             "domain": domain_name,
             "file": filename,
             "thresh": thresh_rows,
             "opps": opps_rows,
-            "weighted_avg": weighted_avg,
-            "total_intents": len(thresh_rows),
+            "total_kept": total_kept,
+            "total_opps": total_opps
         })
+
+    # ===== Calculate overall weighted average (by kept rows) =====
+    domains_with_rows = [r for r in results if r["total_kept"] > 0]
+    overall_weighted_avg = 0.0
+    if domains_with_rows:
+        overall_weighted_avg = (
+            sum(r["total_kept"] for r in domains_with_rows) / len(domains_with_rows)
+        )
 
     # ===== Write kept file =====
     out_dir = os.path.dirname(file_paths[0])
     thresh_path = os.path.join(out_dir, "intent_model-thresh.tsv")
     with open(thresh_path, "w", encoding="utf-8") as out:
         out.write("====== INTENT SUMMARY ======\n")
+        out.write(f"Overall Weighted Avg (by row count): {overall_weighted_avg:.1f}\n")
         for r in results:
-            avg_text = f"{r['weighted_avg']:.1f}%" if r['weighted_avg'] else "N/A"
-            out.write(f"{r['domain']} → {r['total_intents']} intents, Weighted Avg: {avg_text}\n")
+            out.write(f"{r['domain']} → {r['total_kept']} rows kept\n")
         out.write("============================\n\n")
 
+        # Domain details
         for r in results:
-            avg_text = f"{r['weighted_avg']:.1f} percent" if r['weighted_avg'] else "N/A"
             out.write(f"{r['domain']}\n---------------\n")
-            out.write(f"Total intents: {r['total_intents']}\n")
-            out.write(f"Weighted avg: {avg_text}\n")
+            out.write(f"Total intents: {r['total_kept']}\n")
             for line in r["thresh"]:
                 out.write(line + "\n")
             out.write("\n")

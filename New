@@ -1,68 +1,147 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Digital Scoreboard</title>
-  <style>
-    /* Your CSS styles here */
-    body {
-      font-family: Arial, sans-serif;
-      text-align: center;
-      margin-top: 50px;
-    }
-    .team {
-      display: inline-block;
-      margin: 20px;
-    }
-    .score {
-      font-size: 48px;
-      margin-bottom: 10px;
-    }
-    button {
-      padding: 10px 20px;
-      font-size: 16px;
-      margin: 5px;
-    }
-    input[type="text"] {
-      margin-bottom: 10px;
-      padding: 5px;
-      font-size: 16px;
-    }
-  </style>
-</head>
-<body>
-  <h2>Digital Scoreboard</h2>
-  
-  <div class="team" id="team1">
-    <input type="text" id="teamName1" placeholder="Enter Team 1 Name">
-    <h3>Team 1</h3>
-    <p class="score" id="score1">0</p>
-    <button onclick="increaseScore('score1')">+1</button>
-    <button onclick="decreaseScore('score1')">-1</button>
-  </div>
+import os
+import csv
+from tkinter import Tk, filedialog
 
-  <div class="team" id="team2">
-    <input type="text" id="teamName2" placeholder="Enter Team 2 Name">
-    <h3>Team 2</h3>
-    <p class="score" id="score2">0</p>
-    <button onclick="increaseScore('score2')">+1</button>
-    <button onclick="decreaseScore('score2')">-1</button>
-  </div>
+# ========= USER CONFIGURABLE SETTINGS ========= #
 
-  <script>
-    function increaseScore(scoreId) {
-      var scoreElement = document.getElementById(scoreId);
-      var currentScore = parseInt(scoreElement.textContent);
-      scoreElement.textContent = currentScore + 1;
-    }
+DOMAIN_KEYWORDS = {
+    "peach": "Peachdomain",
+    "carrot": "Carrotdomain",
+    "cheese": "Cheesedomain",
+}
 
-    function decreaseScore(scoreId) {
-      var scoreElement = document.getElementById(scoreId);
-      var currentScore = parseInt(scoreElement.textContent);
-      if (currentScore > 0) {
-        scoreElement.textContent = currentScore - 1;
-      }
-    }
-  </script>
-</body>
-</html>
+EXCLUDE_PHRASES = ["apple pie", "cherry pie", "pumpkin pie"]
+
+# Weighted average columns (0-based)
+WEIGHT_COLUMN_INDEX = 3   # D column
+VALUE_COLUMN_INDEX = 5    # F column
+
+# ============================================== #
+
+def detect_domain_from_filename(filename):
+    """Return domain name if keyword found in filename; otherwise None."""
+    lower_name = filename.lower()
+    for keyword, domain_name in DOMAIN_KEYWORDS.items():
+        if keyword in lower_name:
+            return domain_name
+    return None
+
+
+def read_and_process_tsv(file_path, domain_name):
+    """Read TSV, separate thresh/opps rows, compute weighted avg."""
+    thresh_rows, opps_rows = [], []
+    weights, values = [], []
+
+    with open(file_path, "r", encoding="utf-8-sig") as f:
+        reader = csv.reader(f, delimiter="\t")
+        for i, row in enumerate(reader, start=1):
+            if not row or not row[0].startswith("#"):
+                continue
+
+            text_line = "\t".join(row)
+
+            # Ensure the 4th column exists
+            if len(row) <= 3:
+                print(f"🚨 ERROR: Missing 4th column in {domain_name}, line {i}")
+                continue
+
+            col4 = row[3].strip().lower()
+
+            # Opps logic
+            if (
+                col4 == "null"
+                or any(phrase.lower() in col4 for phrase in EXCLUDE_PHRASES)
+            ):
+                opps_rows.append(text_line)
+                continue
+
+            # Otherwise keep
+            thresh_rows.append(text_line)
+
+            # Weighted avg collection
+            try:
+                weight = float(row[WEIGHT_COLUMN_INDEX])
+                value = float(row[VALUE_COLUMN_INDEX])
+                weights.append(weight)
+                values.append(value)
+            except (ValueError, IndexError):
+                # skip rows with invalid numeric data
+                continue
+
+    weighted_avg = None
+    if weights and sum(weights) != 0:
+        weighted_avg = (sum(w * v for w, v in zip(weights, values)) / sum(weights)) * 100
+
+    return thresh_rows, opps_rows, weighted_avg
+
+
+def main():
+    Tk().withdraw()
+    file_paths = filedialog.askopenfilenames(
+        title="Select all domain TSV files",
+        filetypes=[("TSV files", "*.tsv")]
+    )
+    if not file_paths:
+        print("No files selected. Exiting.")
+        return
+
+    results = []
+
+    for file_path in file_paths:
+        filename = os.path.basename(file_path)
+        domain_name = detect_domain_from_filename(filename)
+        if not domain_name:
+            domain_name = input(
+                f"Couldn't detect domain for file '{filename}'. "
+                "Enter domain name manually (or press Enter to skip): "
+            ) or "UnknownDomain"
+
+        thresh_rows, opps_rows, weighted_avg = read_and_process_tsv(file_path, domain_name)
+
+        results.append({
+            "domain": domain_name,
+            "file": filename,
+            "thresh": thresh_rows,
+            "opps": opps_rows,
+            "weighted_avg": weighted_avg,
+            "total_intents": len(thresh_rows),
+        })
+
+    # ===== Write kept file =====
+    out_dir = os.path.dirname(file_paths[0])
+    thresh_path = os.path.join(out_dir, "intent_model-thresh.tsv")
+    with open(thresh_path, "w", encoding="utf-8") as out:
+        out.write("====== INTENT SUMMARY ======\n")
+        for r in results:
+            avg_text = f"{r['weighted_avg']:.1f}%" if r['weighted_avg'] else "N/A"
+            out.write(f"{r['domain']} → {r['total_intents']} intents, Weighted Avg: {avg_text}\n")
+        out.write("============================\n\n")
+
+        for r in results:
+            avg_text = f"{r['weighted_avg']:.1f} percent" if r['weighted_avg'] else "N/A"
+            out.write(f"{r['domain']}\n---------------\n")
+            out.write(f"Total intents: {r['total_intents']}\n")
+            out.write(f"Weighted avg: {avg_text}\n")
+            for line in r["thresh"]:
+                out.write(line + "\n")
+            out.write("\n")
+
+    # ===== Write opps file =====
+    opps_path = os.path.join(out_dir, "intent_model-opps.tsv")
+    with open(opps_path, "w", encoding="utf-8") as out:
+        out.write("====== OPPS ======\n")
+        for r in results:
+            out.write(f"{r['domain']}\n")
+            for line in r["opps"]:
+                out.write(line + "\n")
+            out.write("\n")
+
+    print(f"\n✅ Created:\n  {thresh_path}\n  {opps_path}\n")
+    try:
+        os.startfile(thresh_path)
+    except Exception:
+        pass
+
+
+if __name__ == "__main__":
+    main()

@@ -1,35 +1,43 @@
 import os
 import csv
+import re
 import pandas as pd
 from tkinter import Tk, filedialog
 
 # ========= USER CONFIGURABLE SETTINGS ========= #
 
+# Keywords used to recognize each domain in the file name
 DOMAIN_KEYWORDS = {
     "peach": "Peachdomain",
     "carrot": "Carrotdomain",
     "cheese": "Cheesedomain",
 }
 
+# Any rows whose 5th column contains one of these phrases OR "Null" will be filtered out
 EXCLUDE_PHRASES = ["apple pie", "cherry pie", "pumpkin pie"]
 
-# Column that holds trigger words / "Null"
-TARGET_COLUMN_INDEX = 4   # zero-based → 5th column (adjust if needed)
+# Column index (zero-based) where exclusion / "Null" check happens
+TARGET_COLUMN_INDEX = 4   # i.e., the 5th column
 
 # ============================================== #
 
 
+# --- Smart domain detection -------------------------------------------------
 def detect_domain_from_filename(filename):
-    """Return domain name if keyword found in filename; otherwise None."""
-    lower_name = filename.lower()
+    """Return domain name if keyword found in filename (case-insensitive, ignores spaces/dashes/underscores)."""
+    name = filename.lower().replace("_", " ").replace("-", " ")
+    name = re.sub(r"\s+", " ", name)  # normalize spaces
+
     for keyword, domain_name in DOMAIN_KEYWORDS.items():
-        if keyword in lower_name:
+        key = keyword.lower().replace("_", " ").replace("-", " ")
+        if re.search(rf"\b{re.escape(key)}\b", name):
             return domain_name
     return None
 
 
+# --- Read TSV, split kept vs opps -------------------------------------------
 def read_and_process_tsv(file_path, domain_name):
-    """Read TSV, separate kept vs. opps rows (cleaned for TSV output)."""
+    """Read TSV file, separate kept vs opps, and clean rows for TSV output."""
     thresh_rows, opps_rows = [], []
 
     with open(file_path, "r", encoding="utf-8-sig") as f:
@@ -37,27 +45,23 @@ def read_and_process_tsv(file_path, domain_name):
         for i, row in enumerate(reader, start=1):
             if not row or not row[0].startswith("#"):
                 continue
-
-            # Ensure the target column exists
             if len(row) <= TARGET_COLUMN_INDEX:
-                print(f"🚨 ERROR: Missing column {TARGET_COLUMN_INDEX+1} in {domain_name}, line {i}")
+                print(f"🚨 Missing 5th column in {domain_name}, line {i}")
                 continue
 
             col_value = row[TARGET_COLUMN_INDEX].strip().lower()
             cleaned_intent = row[1].strip() if len(row) > 1 else ""
 
-            # Opps logic
+            # Determine if this row goes to opps
             if col_value == "null" or any(phrase.lower() in col_value for phrase in EXCLUDE_PHRASES):
-                opps_rows.append(cleaned_intent)
+                opps_rows.append(row)
             else:
-                thresh_rows.append(cleaned_intent)
+                thresh_rows.append(row)
 
-    total_kept = len(thresh_rows)
-    total_opps = len(opps_rows)
-
-    return thresh_rows, opps_rows, total_kept, total_opps
+    return thresh_rows, opps_rows
 
 
+# --- Main workflow ----------------------------------------------------------
 def main():
     Tk().withdraw()
     file_paths = filedialog.askopenfilenames(
@@ -69,146 +73,89 @@ def main():
         return
 
     results = []
+    out_dir = os.path.dirname(file_paths[0])
 
+    # --- Process each file
     for file_path in file_paths:
         filename = os.path.basename(file_path)
         domain_name = detect_domain_from_filename(filename)
+
         if not domain_name:
             domain_name = input(
-                f"Couldn't detect domain for file '{filename}'. "
-                "Enter domain name manually (or press Enter to skip): "
+                f"Could not detect domain for '{filename}'. Enter domain name manually: "
             ) or "UnknownDomain"
 
-        thresh_rows, opps_rows, total_kept, total_opps = read_and_process_tsv(file_path, domain_name)
-
+        thresh_rows, opps_rows = read_and_process_tsv(file_path, domain_name)
         results.append({
             "domain": domain_name,
             "file": filename,
             "thresh": thresh_rows,
             "opps": opps_rows,
-            "total_kept": total_kept,
-            "total_opps": total_opps
         })
 
-    # ===== Calculate overall weighted average (by kept rows) =====
-    domains_with_rows = [r for r in results if r["total_kept"] > 0]
-    overall_weighted_avg = 0.0
-    if domains_with_rows:
-        overall_weighted_avg = (
-            sum(r["total_kept"] for r in domains_with_rows) / len(domains_with_rows)
-        )
+    # --- Calculate summary
+    summary_rows = []
+    for r in results:
+        total_kept = len(r["thresh"])
+        total_opps = len(r["opps"])
+        summary_rows.append([r["domain"], total_kept, total_opps])
+    total_domains = len(results)
+    overall_weighted_avg = sum(len(r["thresh"]) for r in results) / total_domains if total_domains else 0
 
-    out_dir = os.path.dirname(file_paths[0])
-
-    # ===== Write cleaned TSV outputs =====
+    # --- Write summary TSV (clean one-column version)
     thresh_path = os.path.join(out_dir, "intent_model-thresh.tsv")
     with open(thresh_path, "w", encoding="utf-8") as out:
         out.write("====== INTENT SUMMARY ======\n")
         out.write(f"Overall Weighted Avg (by row count): {overall_weighted_avg:.1f}\n")
-        for r in results:
-            out.write(f"{r['domain']} → {r['total_kept']} rows kept\n")
         out.write("============================\n\n")
-
         for r in results:
-            out.write(f"{r['domain']}\n---------------\n")
-            out.write(f"Total intents: {r['total_kept']}\n")
-            for intent in r["thresh"]:
-                out.write(intent + "\n")
+            out.write(f"{r['domain']} ({len(r['thresh'])} intents)\n")
+            for row in r["thresh"]:
+                out.write(f"{row[1]}\n")
             out.write("\n")
 
+    # --- Write opps TSV (clean one-column version)
     opps_path = os.path.join(out_dir, "intent_model-opps.tsv")
     with open(opps_path, "w", encoding="utf-8") as out:
-        out.write("====== OPPS ======\n")
+        out.write("====== OPPORTUNITIES ======\n")
         for r in results:
-            out.write(f"{r['domain']}\n")
-            for intent in r["opps"]:
-                out.write(intent + "\n")
+            out.write(f"{r['domain']} ({len(r['opps'])} opps)\n")
+            for row in r["opps"]:
+                out.write(f"{row[1]}\n")
             out.write("\n")
 
-    # ===== Create full-row CSV versions =====
-    try:
-        thresh_csv_path = os.path.join(out_dir, "intent_model-thresh.csv")
-        opps_csv_path = os.path.join(out_dir, "intent_model-opps.csv")
+    print(f"✅ TSVs created in: {out_dir}")
 
-        all_thresh_rows, all_opps_rows = [], []
-        for file_path in file_paths:
-            filename = os.path.basename(file_path)
-            domain_name = detect_domain_from_filename(filename) or "UnknownDomain"
-
-            with open(file_path, "r", encoding="utf-8-sig") as f:
-                reader = csv.reader(f, delimiter="\t")
-                for row in reader:
-                    if not row or not row[0].startswith("#"):
-                        continue
-                    if len(row) <= TARGET_COLUMN_INDEX:
-                        continue
-                    col_value = row[TARGET_COLUMN_INDEX].strip().lower()
-                    if col_value == "null" or any(phrase.lower() in col_value for phrase in EXCLUDE_PHRASES):
-                        all_opps_rows.append([domain_name] + row)
-                    else:
-                        all_thresh_rows.append([domain_name] + row)
-
-        pd.DataFrame(all_thresh_rows).to_csv(thresh_csv_path, index=False, header=False)
-        pd.DataFrame(all_opps_rows).to_csv(opps_csv_path, index=False, header=False)
-
-        print(f"✅ Full-row CSVs created:\n  {thresh_csv_path}\n  {opps_csv_path}")
-    except Exception as e:
-        print(f"⚠️ Could not create CSV versions: {e}")
-
-    # ===== Create Excel workbook with separate sheets =====
+    # --- Build Excel workbook with 7 sheets ---------------------------------
     try:
         excel_path = os.path.join(out_dir, "intent_model_full.xlsx")
 
-        # Summary sheet
-        summary_rows = []
-        for r in results:
-            summary_rows.append([r["domain"], r["total_kept"], r["total_opps"]])
         summary_df = pd.DataFrame(summary_rows, columns=["Domain", "Kept Rows", "Opps Rows"])
         summary_df.loc[len(summary_df.index)] = [
             "Overall Weighted Avg (by row count)",
             f"{overall_weighted_avg:.1f}",
-            ""
+            "",
         ]
 
-        # Full rows per domain + all opps
-        domain_dfs = {}
-        all_opps_rows = []
-        for file_path in file_paths:
-            filename = os.path.basename(file_path)
-            domain_name = detect_domain_from_filename(filename) or "UnknownDomain"
-            with open(file_path, "r", encoding="utf-8-sig") as f:
-                reader = csv.reader(f, delimiter="\t")
-                full_rows = []
-                for row in reader:
-                    if not row or not row[0].startswith("#"):
-                        continue
-                    if len(row) <= TARGET_COLUMN_INDEX:
-                        continue
-                    col_value = row[TARGET_COLUMN_INDEX].strip().lower()
-                    if col_value == "null" or any(phrase.lower() in col_value for phrase in EXCLUDE_PHRASES):
-                        all_opps_rows.append([domain_name] + row)
-                    else:
-                        full_rows.append(row)
-                domain_dfs[domain_name] = pd.DataFrame(full_rows)
-
-        opps_df = pd.DataFrame(all_opps_rows)
-
         with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
+            # Summary sheet
             summary_df.to_excel(writer, sheet_name="Summary", index=False)
-            for domain_name, df in domain_dfs.items():
-                safe_name = domain_name[:31]
-                df.to_excel(writer, sheet_name=safe_name, index=False, header=False)
-            opps_df.to_excel(writer, sheet_name="Opportunities", index=False, header=False)
 
-        print(f"✅ Excel workbook created:\n  {excel_path}")
+            # Domain sheets (Intents + Opportunities per domain)
+            for r in results:
+                intents_df = pd.DataFrame(r["thresh"])
+                opps_df = pd.DataFrame(r["opps"])
+                intents_sheet = f"{r['domain']} - Intents"
+                opps_sheet = f"{r['domain']} - Opportunities"
+
+                intents_df.to_excel(writer, sheet_name=intents_sheet[:31], index=False, header=False)
+                opps_df.to_excel(writer, sheet_name=opps_sheet[:31], index=False, header=False)
+
+        print(f"✅ Excel workbook created: {excel_path}")
     except Exception as e:
         print(f"⚠️ Could not create Excel workbook: {e}")
 
-    print(f"\n✅ Created outputs in: {out_dir}")
-    try:
-        os.startfile(thresh_path)
-    except Exception:
-        pass
+    print("\nAll tasks complete.")
 
 
 if __name__ == "__main__":

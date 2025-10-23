@@ -1,211 +1,322 @@
 import os
 import csv
 import re
-import pandas as pd
+from datetime import datetime
 from tkinter import Tk, filedialog
+import pandas as pd
 
 # ========= USER CONFIGURABLE SETTINGS ========= #
 
-# Keywords used to recognize each domain in the file name
+# Map substrings found in filenames -> pretty domain names
 DOMAIN_KEYWORDS = {
     "peach": "Peachdomain",
     "carrot": "Carrotdomain",
     "cheese": "Cheesedomain",
+    # add more aliases if needed, e.g.:
+    # "pd": "Peachdomain",
+    # "carrot domain": "Carrotdomain",
 }
 
-# Any rows whose 5th column contains one of these phrases OR "Null" will be filtered out
+# Rows go to OPPORTUNITIES if column 5 (index 4) contains any of these phrases OR equals "null"
 EXCLUDE_PHRASES = ["apple pie", "cherry pie", "pumpkin pie"]
 
-# Column index (zero-based) where exclusion / "Null" check happens
-TARGET_COLUMN_INDEX = 4   # i.e., the 5th column
+# Column indexes (0-based)
+OPPS_COLUMN_INDEX = 4       # 5th column: where "null"/exclude phrases live
+DISABLED_COLUMN_INDEX = 8   # 9th column: if equals "disabled" => Disabled bin (highest priority)
 
 # ============================================== #
 
 
-# --- Smart domain detection -------------------------------------------------
-def detect_domain_from_filename(filename):
-    """Return domain name if keyword found in filename (case-insensitive, ignores spaces/dashes/underscores)."""
-    name = filename.lower().replace("_", " ").replace("-", " ")
-    name = re.sub(r"\s+", " ", name)  # normalize spaces
+def normalize_name(text: str) -> str:
+    """Lowercase and make spaces uniform (convert _, - to spaces)."""
+    name = text.lower().replace("_", " ").replace("-", " ")
+    name = re.sub(r"\s+", " ", name).strip()
+    return name
 
+
+def detect_domain_from_filename(filename: str):
+    """Return domain name if keyword found in filename (whole-word, case-insensitive)."""
+    name = normalize_name(filename)
     for keyword, domain_name in DOMAIN_KEYWORDS.items():
-        key = keyword.lower().replace("_", " ").replace("-", " ")
+        key = normalize_name(keyword)
         if re.search(rf"\b{re.escape(key)}\b", name):
             return domain_name
     return None
 
 
-# --- Read TSV, split kept vs opps -------------------------------------------
-def read_and_process_tsv(file_path, domain_name):
-    """Read TSV file, separate kept vs opps, and clean rows for TSV output."""
-    thresh_rows, opps_rows = [], []
+def classify_row(row):
+    """
+    Classify a TSV row into one of: "disabled", "opps", "kept"
+    Assumes row[0] starts with '#', columns exist per indexes when called.
+    """
+    # DISABLED first (column 9 / index 8)
+    disabled_cell = row[DISABLED_COLUMN_INDEX].strip().lower() if len(row) > DISABLED_COLUMN_INDEX else ""
+    if disabled_cell == "disabled":
+        return "disabled"
 
-    with open(file_path, "r", encoding="utf-8-sig") as f:
+    # OPPS next (column 5 / index 4)
+    opps_cell = row[OPPS_COLUMN_INDEX].strip().lower() if len(row) > OPPS_COLUMN_INDEX else ""
+    if opps_cell == "null" or any(phrase.lower() in opps_cell for phrase in EXCLUDE_PHRASES):
+        return "opps"
+
+    # Otherwise kept
+    return "kept"
+
+
+def read_and_bucket_tsv(file_path, domain_name):
+    """
+    Read one TSV and bucket rows by status.
+    Returns dict with full rows for each bucket and cleaned intents (row[1]) for TSV outputs.
+    """
+    kept_rows_full = []
+    opps_rows_full = []
+    disabled_rows_full = []
+
+    kept_intents = []     # for TSV clean output (only intent name)
+    opps_intents = []     # for TSV clean output
+    disabled_intents = [] # for TSV clean output
+
+    with open(file_path, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.reader(f, delimiter="\t")
         for i, row in enumerate(reader, start=1):
             if not row or not row[0].startswith("#"):
                 continue
-            if len(row) <= TARGET_COLUMN_INDEX:
-                print(f"🚨 Missing 5th column in {domain_name}, line {i}")
+
+            # Column presence sanity (we’ll still try classify with what we have)
+            if len(row) <= max(OPPS_COLUMN_INDEX, DISABLED_COLUMN_INDEX):
+                print(f"🚨 Missing expected columns in {domain_name}, line {i} (len={len(row)})")
+                # If critical columns missing, skip; safer than mis-bucketing
                 continue
 
-            col_value = row[TARGET_COLUMN_INDEX].strip().lower()
-            cleaned_intent = row[1].strip() if len(row) > 1 else ""
+            status = classify_row(row)
 
-            # Determine if this row goes to opps
-            if col_value == "null" or any(phrase.lower() in col_value for phrase in EXCLUDE_PHRASES):
-                opps_rows.append(row)
+            # Clean intent name (2nd column)
+            intent_name = row[1].strip() if len(row) > 1 else ""
+
+            if status == "disabled":
+                disabled_rows_full.append(row)
+                disabled_intents.append(intent_name)
+            elif status == "opps":
+                opps_rows_full.append(row)
+                opps_intents.append(intent_name)
             else:
-                thresh_rows.append(row)
+                kept_rows_full.append(row)
+                kept_intents.append(intent_name)
 
-    return thresh_rows, opps_rows
+    return {
+        "kept_full": kept_rows_full,
+        "opps_full": opps_rows_full,
+        "disabled_full": disabled_rows_full,
+        "kept_intents": kept_intents,
+        "opps_intents": opps_intents,
+        "disabled_intents": disabled_intents,
+    }
 
 
-# --- Main workflow ----------------------------------------------------------
-def main():
+def make_output_folder():
+    """Ask user for a parent directory and create a timestamped OutputFolder inside it."""
+    Tk().withdraw()
+    parent = filedialog.askdirectory(title="Choose a parent folder for the OutputFolder")
+    if not parent:
+        print("No folder selected. Exiting.")
+        return None
+
+    base = os.path.join(parent, "OutputFolder")
+    output_dir = base
+    if os.path.exists(output_dir):
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = f"{base}_{stamp}"
+    os.makedirs(output_dir, exist_ok=True)
+    return output_dir
+
+
+def pick_input_files():
+    """Ask the user to select all TSV files to process."""
     Tk().withdraw()
     file_paths = filedialog.askopenfilenames(
         title="Select all domain TSV files",
         filetypes=[("TSV files", "*.tsv")]
     )
-    if not file_paths:
-        print("No files selected. Exiting.")
-        return
+    return list(file_paths)
 
-    results = []
-    out_dir = os.path.dirname(file_paths[0])
 
-    # --- Process each file
-    for file_path in file_paths:
-        filename = os.path.basename(file_path)
-        domain_name = detect_domain_from_filename(filename)
-
-        if not domain_name:
-            domain_name = input(
-                f"Could not detect domain for '{filename}'. Enter domain name manually: "
-            ) or "UnknownDomain"
-
-        thresh_rows, opps_rows = read_and_process_tsv(file_path, domain_name)
-        results.append({
-            "domain": domain_name,
-            "file": filename,
-            "thresh": thresh_rows,
-            "opps": opps_rows,
-        })
-
-    # --- Calculate summary
-    summary_rows = []
-    for r in results:
-        total_kept = len(r["thresh"])
-        total_opps = len(r["opps"])
-        summary_rows.append([r["domain"], total_kept, total_opps])
-    total_domains = len(results)
-    overall_weighted_avg = sum(len(r["thresh"]) for r in results) / total_domains if total_domains else 0
-
-    # --- Write summary TSV (clean one-column version)
-    thresh_path = os.path.join(out_dir, "intent_model-thresh.tsv")
-    with open(thresh_path, "w", encoding="utf-8") as out:
+def write_tsvs(output_dir, results, overall_weighted_avg):
+    """Write the three TSVs: kept (intents), opps, disabled — with summaries and headers."""
+    # --- Kept TSV ---
+    kept_tsv = os.path.join(output_dir, "intent_model-thresh.tsv")
+    with open(kept_tsv, "w", encoding="utf-8") as out:
         out.write("====== INTENT SUMMARY ======\n")
         out.write(f"Overall Weighted Avg (by row count): {overall_weighted_avg:.1f}\n")
         out.write("============================\n\n")
         for r in results:
-            out.write(f"{r['domain']} ({len(r['thresh'])} intents)\n")
-            for row in r["thresh"]:
-                out.write(f"{row[1]}\n")
+            kept_count = len(r["kept_intents"])
+            opps_count = len(r["opps_intents"])
+            disabled_count = len(r["disabled_intents"])
+            total = kept_count + opps_count + disabled_count
+            out.write(f"{r['domain']} — {kept_count} kept / {opps_count} opps / {disabled_count} disabled ({total} total)\n")
+            out.write("---------------\n")
+            for intent in r["kept_intents"]:
+                out.write(intent + "\n")
             out.write("\n")
 
-    # --- Write opps TSV (clean one-column version)
-    opps_path = os.path.join(out_dir, "intent_model-opps.tsv")
-    with open(opps_path, "w", encoding="utf-8") as out:
-        out.write("====== OPPORTUNITIES ======\n")
+    # --- Opportunities TSV ---
+    opps_tsv = os.path.join(output_dir, "intent_model-opps.tsv")
+    with open(opps_tsv, "w", encoding="utf-8") as out:
+        out.write("====== OPPORTUNITIES SUMMARY ======\n")
         for r in results:
-            out.write(f"{r['domain']} ({len(r['opps'])} opps)\n")
-            for row in r["opps"]:
-                out.write(f"{row[1]}\n")
+            out.write(f"{r['domain']}: {len(r['opps_intents'])} opps\n")
+        out.write("===================================\n\n")
+        for r in results:
+            out.write(f"\t\t{r['domain']} ({len(r['opps_intents'])} opps)\n")
+            for intent in r["opps_intents"]:
+                out.write(intent + "\n")
             out.write("\n")
 
-    print(f"✅ TSVs created in: {out_dir}")
+    # --- Disabled TSV ---
+    disabled_tsv = os.path.join(output_dir, "intent_model-disabled.tsv")
+    with open(disabled_tsv, "w", encoding="utf-8") as out:
+        out.write("====== DISABLED SUMMARY ======\n")
+        for r in results:
+            out.write(f"{r['domain']}: {len(r['disabled_intents'])} disabled\n")
+        out.write("================================\n\n")
+        for r in results:
+            out.write(f"\t\t{r['domain']} ({len(r['disabled_intents'])} disabled)\n")
+            for intent in r["disabled_intents"]:
+                out.write(intent + "\n")
+            out.write("\n")
 
-    # --- Build Excel workbook with 7 sheets ---------------------------------
+    print(f"✅ TSVs written:\n  {kept_tsv}\n  {opps_tsv}\n  {disabled_tsv}")
+
+
+def write_excel(output_dir, results, overall_weighted_avg):
+    """Write a single Excel workbook with Summary + per-domain Intents/Opportunities/Disabled sheets."""
+    excel_path = os.path.join(output_dir, "intent_model_full.xlsx")
+
+    # Build Summary dataframe
+    summary_rows = []
+    for r in results:
+        kept_count = len(r["kept_full"])
+        opps_count = len(r["opps_full"])
+        disabled_count = len(r["disabled_full"])
+        total = kept_count + opps_count + disabled_count
+        summary_rows.append([r["domain"], kept_count, opps_count, disabled_count, total])
+
+    summary_df = pd.DataFrame(summary_rows, columns=["Domain", "Kept Rows", "Opps Rows", "Disabled Rows", "Total Rows"])
+    summary_df.loc[len(summary_df.index)] = [
+        "Overall Weighted Avg (by kept rows)",
+        f"{overall_weighted_avg:.1f}",
+        "",
+        "",
+        "",
+    ]
+
+    # Create workbook
     try:
-        excel_path = os.path.join(out_dir, "intent_model_full.xlsx")
-
-        summary_df = pd.DataFrame(summary_rows, columns=["Domain", "Kept Rows", "Opps Rows"])
-        summary_df.loc[len(summary_df.index)] = [
-            "Overall Weighted Avg (by row count)",
-            f"{overall_weighted_avg:.1f}",
-            "",
-        ]
-
         with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
-            # Summary sheet
+            # Summary first
             summary_df.to_excel(writer, sheet_name="Summary", index=False)
 
-            # Domain sheets (Intents + Opportunities per domain)
+            # Per-domain sheets
             for r in results:
-                intents_df = pd.DataFrame(r["thresh"])
-                opps_df = pd.DataFrame(r["opps"])
-                intents_sheet = f"{r['domain']} - Intents"
-                opps_sheet = f"{r['domain']} - Opportunities"
+                # Remove '#' column for Excel sheets by slicing each row [1:]
+                intents_df = pd.DataFrame([row[1:] for row in r["kept_full"]])
+                opps_df    = pd.DataFrame([row[1:] for row in r["opps_full"]])
+                dis_df     = pd.DataFrame([row[1:] for row in r["disabled_full"]])
 
-                intents_df.to_excel(writer, sheet_name=intents_sheet[:31], index=False, header=False)
-                opps_df.to_excel(writer, sheet_name=opps_sheet[:31], index=False, header=False)
+                name_int = f"{r['domain']} - Intents"[:31]
+                name_opp = f"{r['domain']} - Opportunities"[:31]
+                name_dis = f"{r['domain']} - Disabled"[:31]
+
+                intents_df.to_excel(writer, sheet_name=name_int, index=False, header=False)
+                opps_df.to_excel(writer, sheet_name=name_opp, index=False, header=False)
+                dis_df.to_excel(writer, sheet_name=name_dis, index=False, header=False)
 
         print(f"✅ Excel workbook created: {excel_path}")
     except Exception as e:
         print(f"⚠️ Could not create Excel workbook: {e}")
+        return
 
-    print("\nAll tasks complete.")
+    # Post-format the Summary sheet
+    try:
+        from openpyxl import load_workbook
+        from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+
+        wb = load_workbook(excel_path)
+        ws = wb["Summary"]
+
+        # Auto column width
+        for col in ws.columns:
+            max_length = 0
+            col_letter = col[0].column_letter
+            for cell in col:
+                if cell.value is not None:
+                    max_length = max(max_length, len(str(cell.value)))
+            ws.column_dimensions[col_letter].width = max_length + 4
+
+        # Style header
+        header_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
+        border = Border(
+            left=Side(style="thin"), right=Side(style="thin"),
+            top=Side(style="thin"), bottom=Side(style="thin")
+        )
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = border
+
+        # Style data cells
+        for row in ws.iter_rows(min_row=2):
+            for cell in row:
+                cell.alignment = Alignment(horizontal="center")
+                cell.border = border
+
+        wb.save(excel_path)
+        print("✨ Formatted Summary sheet.")
+    except Exception as e:
+        print(f"⚠️ Could not format Summary sheet: {e}")
+
+
+def main():
+    # Choose output folder
+    output_dir = make_output_folder()
+    if not output_dir:
+        return
+
+    # Pick inputs
+    files = pick_input_files()
+    if not files:
+        print("No TSV files selected. Exiting.")
+        return
+
+    # Process all files
+    results = []
+    for path in files:
+        filename = os.path.basename(path)
+        domain = detect_domain_from_filename(filename)
+        if not domain:
+            # give user an explicit chance to name it
+            domain = input(f"Could not detect domain for '{filename}'. Enter domain name: ").strip() or "UnknownDomain"
+
+        buckets = read_and_bucket_tsv(path, domain)
+        results.append({
+            "domain": domain,
+            "file": filename,
+            **buckets
+        })
+
+    # Compute overall weighted avg (by kept rows per domain)
+    domains_count = len(results)
+    overall_weighted_avg = (
+        sum(len(r["kept_intents"]) for r in results) / domains_count if domains_count else 0.0
+    )
+
+    # Write outputs
+    write_tsvs(output_dir, results, overall_weighted_avg)
+    write_excel(output_dir, results, overall_weighted_avg)
+
+    print(f"\n✅ All outputs saved to: {output_dir}")
 
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-from openpyxl import load_workbook
-from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-
-try:
-    # Load the workbook we just created
-    wb = load_workbook(excel_path)
-    ws = wb["Summary"]
-
-    # Auto column width
-    for col in ws.columns:
-        max_length = 0
-        col_letter = col[0].column_letter
-        for cell in col:
-            if cell.value:
-                max_length = max(max_length, len(str(cell.value)))
-        ws.column_dimensions[col_letter].width = max_length + 4
-
-    # Bold headers, center align, light gray fill
-    header_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
-    border = Border(
-        left=Side(style="thin"), right=Side(style="thin"),
-        top=Side(style="thin"), bottom=Side(style="thin")
-    )
-
-    for cell in ws[1]:
-        cell.font = Font(bold=True)
-        cell.fill = header_fill
-        cell.alignment = Alignment(horizontal="center")
-        cell.border = border
-
-    # Apply border + center alignment to all other cells
-    for row in ws.iter_rows(min_row=2):
-        for cell in row:
-            cell.alignment = Alignment(horizontal="center")
-            cell.border = border
-
-    wb.save(excel_path)
-    print(f"✨ Formatted Summary sheet nicely in: {excel_path}")
-except Exception as e:
-    print(f"⚠️ Could not format Summary sheet: {e}")
-
-

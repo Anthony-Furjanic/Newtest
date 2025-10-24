@@ -20,15 +20,20 @@ for file in selected_files:
         domain_files["H"] = file
 
 if len(domain_files) != 3:
-    print("⚠️  Could not detect all three domains (D, G, H). Check file names and retry.")
+    print("⚠️ Could not detect all three domains (D, G, H). Check file names and retry.")
     for f in selected_files:
         print(" -", os.path.basename(f))
     raise SystemExit
+
+print("\n✅ Detected files:")
+for domain, f in domain_files.items():
+    print(f"  {domain}: {os.path.basename(f)}")
 
 timestamp = datetime.now().strftime("%Y-%m-%d_%Hh%Mm")
 output_file = f"Output_{timestamp}.xlsx"
 
 def clean_col_c_drop_blanks(df):
+    """Remove rows where column C is '(blank)' or empty."""
     c = df.columns[2]  # column C
     colC = df[c].astype(str).str.strip()
     colC = colC.mask(colC.str.lower() == "(blank)", None)
@@ -40,44 +45,62 @@ def clean_col_c_drop_blanks(df):
     return df, dropped
 
 def coerce_weights_and_scores(df):
-    w_col = df.columns[3]  # D = weight
-    s_col = df.columns[5]  # F = percent
+    """Ensure numeric, drop NaNs, and normalize percent scale."""
+    w_col = df.columns[3]  # D = weights
+    s_col = df.columns[5]  # F = percent score
     df[w_col] = pd.to_numeric(df[w_col], errors='coerce')
     df[s_col] = pd.to_numeric(df[s_col], errors='coerce')
+
+    # Drop rows with NaN in weight or score
+    before = len(df)
     df = df.dropna(subset=[w_col, s_col])
+    dropped = before - len(df)
+
+    # Normalize scores to 0–100 if they look like 0–1
     if df[s_col].max() <= 1.5:
         df[s_col] = df[s_col] * 100.0
-    return df, w_col, s_col
+
+    return df, w_col, s_col, dropped
 
 def weighted_average(df, w_col, s_col):
+    """Compute weighted average on 0–100 scale."""
     w_sum = df[w_col].sum()
     return (df[w_col] * df[s_col]).sum() / w_sum if w_sum else float('nan')
 
 def process_domain(filepath):
     df = pd.read_excel(filepath)
-    df, dropped = clean_col_c_drop_blanks(df)
-    df, w_col, s_col = coerce_weights_and_scores(df)
+
+    # Step 1: drop '(blank)' / empty in column C
+    df, dropped_blankC = clean_col_c_drop_blanks(df)
+
+    # Step 2: ensure numeric + drop NaNs
+    df, w_col, s_col, dropped_nan = coerce_weights_and_scores(df)
+
+    # Step 3: compute weighted average
     wavg = weighted_average(df, w_col, s_col)
+
+    # Step 4: append summary row at bottom
     label_col = df.columns[-2] if len(df.columns) >= 2 else df.columns[-1]
     value_col = df.columns[-1]
     summary_row = {col: None for col in df.columns}
     summary_row[label_col] = "Weighted Average (%)"
-    summary_row[value_col] = None if pd.isna(wavg) else round(wavg, 0)
+    summary_row[value_col] = None if pd.isna(wavg) else f"{wavg:.2f}"
     df_out = pd.concat([df, pd.DataFrame([summary_row])], ignore_index=True)
-    return df_out, wavg, dropped
+
+    return df_out, wavg, dropped_blankC, dropped_nan
 
 summary_rows = []
 
 with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
     for domain, path in domain_files.items():
-        df_out, wavg, dropped = process_domain(path)
+        df_out, wavg, dropped_blankC, dropped_nan = process_domain(path)
         df_out.to_excel(writer, sheet_name=domain, index=False)
-        summary_rows.append((domain, None if pd.isna(wavg) else round(wavg, 0)))
-        print(f"{domain}: dropped {dropped} rows where C was blank/(blank). Weighted Avg = {round(wavg,2) if not pd.isna(wavg) else 'N/A'}")
+        summary_rows.append((domain, None if pd.isna(wavg) else round(wavg, 2)))
+        print(f"{domain}: dropped {dropped_blankC} '(blank)' rows and {dropped_nan} NaN rows. Weighted Avg = {wavg:.2f}")
 
     summary_df = pd.DataFrame(summary_rows, columns=["Domain", "Weighted Avg (%)"])
-    overall = round(summary_df["Weighted Avg (%)"].dropna().mean(), 0)
+    overall = round(summary_df["Weighted Avg (%)"].dropna().mean(), 2)
     summary_df.loc[len(summary_df)] = ["", overall]
     summary_df.to_excel(writer, sheet_name="Summary", index=False)
 
-print(f"✅ Done. File saved as {output_file}")
+print(f"\n✅ Done! File saved as {output_file}")

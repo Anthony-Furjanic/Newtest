@@ -1,85 +1,70 @@
 import pandas as pd
 from datetime import datetime
 from tkinter import Tk, filedialog
+import os
 
 # ---------- File Picker ----------
 Tk().withdraw()
-print("Select Excel file for Domain D:")
-file_D = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
-print("Select Excel file for Domain G:")
-file_G = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
-print("Select Excel file for Domain H:")
-file_H = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
+print("Select all 3 Excel files (hold Ctrl or Cmd while clicking):")
+selected_files = filedialog.askopenfilenames(filetypes=[("Excel files", "*.xlsx")])
 
-domain_files = {"D": file_D, "G": file_G, "H": file_H}
+# Map chosen files to domains based on filename
+domain_files = {}
+for file in selected_files:
+    fname = os.path.basename(file).lower()
+    if "d" in fname and "domain" in fname or fname.startswith("d"):
+        domain_files["D"] = file
+    elif "g" in fname and "domain" in fname or fname.startswith("g"):
+        domain_files["G"] = file
+    elif "h" in fname and "domain" in fname or fname.startswith("h"):
+        domain_files["H"] = file
+
+if len(domain_files) != 3:
+    print("⚠️  Could not detect all three domains (D, G, H). Check file names and retry.")
+    for f in selected_files:
+        print(" -", os.path.basename(f))
+    raise SystemExit
 
 timestamp = datetime.now().strftime("%Y-%m-%d_%Hh%Mm")
 output_file = f"Output_{timestamp}.xlsx"
 
 def clean_col_c_drop_blanks(df):
-    # Normalize col C: treat "(blank)", "", and whitespace as missing
     c = df.columns[2]  # column C
-    # Ensure string ops are safe
     colC = df[c].astype(str).str.strip()
-    # Mark case-insensitive "(blank)" as empty
     colC = colC.mask(colC.str.lower() == "(blank)", None)
-    # Mark pure empty strings as missing
     colC = colC.replace({"": None})
     df[c] = colC
-    # Drop rows where C is missing after normalization
     before = len(df)
     df = df.dropna(subset=[c])
     dropped = before - len(df)
     return df, dropped
 
 def coerce_weights_and_scores(df):
-    w_col = df.columns[3]  # D = weights
-    s_col = df.columns[5]  # F = percent score
-
-    # Make numeric
+    w_col = df.columns[3]  # D = weight
+    s_col = df.columns[5]  # F = percent
     df[w_col] = pd.to_numeric(df[w_col], errors='coerce')
     df[s_col] = pd.to_numeric(df[s_col], errors='coerce')
-
-    # Drop rows with missing weight or score
     df = df.dropna(subset=[w_col, s_col])
-
-    # Normalize scores to 0–100 scale (if they look like 0–1)
-    # Heuristic: if max <= 1.5, treat as proportions and scale by 100
-    max_score = df[s_col].max()
-    if pd.notna(max_score) and max_score <= 1.5:
+    if df[s_col].max() <= 1.5:
         df[s_col] = df[s_col] * 100.0
-
     return df, w_col, s_col
 
 def weighted_average(df, w_col, s_col):
     w_sum = df[w_col].sum()
-    if w_sum == 0 or pd.isna(w_sum):
-        return float('nan')
-    return (df[w_col] * df[s_col]).sum() / w_sum
+    return (df[w_col] * df[s_col]).sum() / w_sum if w_sum else float('nan')
 
 def process_domain(filepath):
     df = pd.read_excel(filepath)
-
-    # Step 1: drop rows where C is "(blank)" or empty/whitespace
-    df, dropped_blankC = clean_col_c_drop_blanks(df)
-
-    # Step 2: coerce D (weight) and F (score), normalize F to 0–100 if needed
+    df, dropped = clean_col_c_drop_blanks(df)
     df, w_col, s_col = coerce_weights_and_scores(df)
-
-    # Step 3: compute weighted average (on 0–100 scale), no premature rounding
     wavg = weighted_average(df, w_col, s_col)
-
-    # Step 4: append a clear summary row at the bottom
-    # Put the label in the second-to-last column and the value in the last column
     label_col = df.columns[-2] if len(df.columns) >= 2 else df.columns[-1]
     value_col = df.columns[-1]
     summary_row = {col: None for col in df.columns}
     summary_row[label_col] = "Weighted Average (%)"
-    # Display as whole-number percentage (e.g., 97 not 0.97)
     summary_row[value_col] = None if pd.isna(wavg) else round(wavg, 0)
     df_out = pd.concat([df, pd.DataFrame([summary_row])], ignore_index=True)
-
-    return df_out, wavg, dropped_blankC
+    return df_out, wavg, dropped
 
 summary_rows = []
 
@@ -87,16 +72,12 @@ with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
     for domain, path in domain_files.items():
         df_out, wavg, dropped = process_domain(path)
         df_out.to_excel(writer, sheet_name=domain, index=False)
-        # Store whole-number percentage for summary
         summary_rows.append((domain, None if pd.isna(wavg) else round(wavg, 0)))
-        print(f"{domain}: dropped {dropped} rows where C was blank/(blank). Weighted Avg = {None if pd.isna(wavg) else round(wavg, 2)}")
+        print(f"{domain}: dropped {dropped} rows where C was blank/(blank). Weighted Avg = {round(wavg,2) if not pd.isna(wavg) else 'N/A'}")
 
-    # Build Summary sheet
     summary_df = pd.DataFrame(summary_rows, columns=["Domain", "Weighted Avg (%)"])
-    overall = None
-    if summary_df["Weighted Avg (%)"].notna().any():
-        overall = round(summary_df["Weighted Avg (%)"].dropna().mean(), 0)
+    overall = round(summary_df["Weighted Avg (%)"].dropna().mean(), 0)
     summary_df.loc[len(summary_df)] = ["", overall]
     summary_df.to_excel(writer, sheet_name="Summary", index=False)
 
-print(f"✅ Done. Saved: {output_file}")
+print(f"✅ Done. File saved as {output_file}")

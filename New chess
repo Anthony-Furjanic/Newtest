@@ -3,7 +3,7 @@ from datetime import datetime
 from tkinter import Tk, filedialog
 import os
 from openpyxl import load_workbook
-from openpyxl.styles import PatternFill
+from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
 
 # ---------- File Picker ----------
 Tk().withdraw()
@@ -14,11 +14,11 @@ selected_files = filedialog.askopenfilenames(filetypes=[("Excel files", "*.xlsx"
 domain_files = {}
 for file in selected_files:
     fname = os.path.basename(file).lower()
-    if "d" in fname and "domain" in fname or fname.startswith("d"):
+    if ("d" in fname and "domain" in fname) or fname.startswith("d"):
         domain_files["D"] = file
-    elif "g" in fname and "domain" in fname or fname.startswith("g"):
+    elif ("g" in fname and "domain" in fname) or fname.startswith("g"):
         domain_files["G"] = file
-    elif "h" in fname and "domain" in fname or fname.startswith("h"):
+    elif ("h" in fname and "domain" in fname) or fname.startswith("h"):
         domain_files["H"] = file
 
 if len(domain_files) != 3:
@@ -34,13 +34,20 @@ for domain, f in domain_files.items():
 timestamp = datetime.now().strftime("%Y-%m-%d_%Hh%Mm")
 output_file = f"Output_{timestamp}.xlsx"
 
+# ---------- Cleaning & Computation Helpers ----------
 def clean_col_c_drop_blanks(df):
-    """Remove rows where column C is '(blank)' or empty."""
+    """Remove rows where column C is '(blank)', NaN, or empty (true or string)."""
     c = df.columns[2]
-    colC = df[c].astype(str).str.strip()
-    colC = colC.mask(colC.str.lower() == "(blank)", None)
-    colC = colC.replace({"": None})
-    df[c] = colC
+    df[c] = df[c].astype(str).str.strip()
+    df[c] = df[c].replace({
+        "(blank)": None,
+        "": None,
+        " ": None,
+        "nan": None,
+        "NaN": None,
+        "None": None,
+        "NULL": None
+    })
     before = len(df)
     df = df.dropna(subset=[c])
     dropped = before - len(df)
@@ -50,10 +57,16 @@ def coerce_weights_and_scores(df):
     """Ensure numeric, drop NaNs, and normalize percent scale."""
     w_col = df.columns[3]
     s_col = df.columns[5]
-    df[w_col] = pd.to_numeric(df[w_col], errors='coerce')
-    df[s_col] = pd.to_numeric(df[s_col], errors='coerce')
 
-    # Drop rows with NaN in weight or score
+    for col in [w_col, s_col]:
+        df[col] = df[col].astype(str).str.strip()
+        df[col] = df[col].replace(
+            {"": None, " ", "-", "_", "nan", "NaN", "None", "NULL": None}
+        )
+
+    df[w_col] = pd.to_numeric(df[w_col], errors="coerce")
+    df[s_col] = pd.to_numeric(df[s_col], errors="coerce")
+
     before = len(df)
     df = df.dropna(subset=[w_col, s_col])
     dropped = before - len(df)
@@ -68,58 +81,92 @@ def weighted_average(df, w_col, s_col):
     """Compute weighted average (in proportion form, not multiplied by 100)."""
     w_sum = df[w_col].sum()
     if w_sum == 0 or pd.isna(w_sum):
-        return float('nan')
-    return (df[w_col] * (df[s_col] / 100.0)).sum() / w_sum  # return as proportion (0–1)
+        return float("nan")
+    return (df[w_col] * (df[s_col] / 100.0)).sum() / w_sum
 
 def process_domain(filepath):
     df = pd.read_excel(filepath)
     df, dropped_blankC = clean_col_c_drop_blanks(df)
     df, w_col, s_col, dropped_nan = coerce_weights_and_scores(df)
+
     wavg_raw = weighted_average(df, w_col, s_col)
     wavg_percent = wavg_raw * 100.0
 
     # Append two summary rows
     label_col = df.columns[-2] if len(df.columns) >= 2 else df.columns[-1]
     value_col = df.columns[-1]
-
     rows_to_add = [
         {**{col: None for col in df.columns}, label_col: "Raw Weighted Average", value_col: f"{wavg_raw:.8f}"},
         {**{col: None for col in df.columns}, label_col: "Weighted Average (%)", value_col: f"{wavg_percent:.8f}"}
     ]
     df_out = pd.concat([df, pd.DataFrame(rows_to_add)], ignore_index=True)
-
     return df_out, wavg_percent, wavg_raw, dropped_blankC, dropped_nan
 
+# ---------- Main Processing ----------
 summary_rows = []
 
-with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
     for domain, path in domain_files.items():
         df_out, wavg_percent, wavg_raw, dropped_blankC, dropped_nan = process_domain(path)
         df_out.to_excel(writer, sheet_name=domain, index=False)
-        summary_rows.append((domain, round(wavg_percent, 8)))
-        print(f"{domain}: dropped {dropped_blankC} '(blank)' and {dropped_nan} NaN rows. Weighted Avg = {wavg_percent:.8f}")
+        summary_rows.append((domain, round(wavg_percent, 2)))
+        print(f"{domain}: dropped {dropped_blankC} '(blank)' rows and {dropped_nan} NaN rows. Weighted Avg = {wavg_percent:.8f}")
 
     summary_df = pd.DataFrame(summary_rows, columns=["Domain", "Weighted Avg (%)"])
-    overall = round(summary_df["Weighted Avg (%)"].dropna().mean(), 8)
-    summary_df.loc[len(summary_df)] = ["", overall]
+    overall = round(summary_df["Weighted Avg (%)"].dropna().mean(), 2)
+    summary_df.loc[len(summary_df)] = ["Total Average", overall]
     summary_df.to_excel(writer, sheet_name="Summary", index=False)
 
-# ---------- Apply Green Formatting ----------
+# ---------- Excel Formatting ----------
 wb = load_workbook(output_file)
-green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
 
+green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+blue_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+border = Border(
+    left=Side(style="thin"), right=Side(style="thin"),
+    top=Side(style="thin"), bottom=Side(style="thin")
+)
+
+# Format domain sheets (color Weighted Average rows)
 for sheet in wb.sheetnames:
     if sheet == "Summary":
         continue
     ws = wb[sheet]
     for row in ws.iter_rows():
         for cell in row:
-            if cell.value and isinstance(cell.value, str) and ("Weighted Average" in cell.value):
-                # Make both label and value cells green
-                ws[cell.coordinate].fill = green_fill
-                right_cell = ws.cell(row=cell.row, column=ws.max_column)
-                right_cell.fill = green_fill
+            if cell.value and isinstance(cell.value, str) and "Weighted Average" in cell.value:
+                cell.fill = green_fill
+                cell.font = Font(bold=True)
+                value_cell = ws.cell(row=cell.row, column=ws.max_column)
+                value_cell.fill = green_fill
+                value_cell.font = Font(bold=True)
+
+# Format summary sheet as a clean table
+ws = wb["Summary"]
+for row in ws.iter_rows():
+    for cell in row:
+        cell.border = border
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+# Header styling
+for cell in ws[1]:
+    cell.font = Font(bold=True)
+    cell.fill = blue_fill
+
+# Green total row
+for cell in ws[ws.max_row]:
+    cell.fill = green_fill
+    cell.font = Font(bold=True)
+
+# Adjust column widths
+ws.column_dimensions["A"].width = 15
+ws.column_dimensions["B"].width = 20
+
+# Force 2-decimal display on numeric cells
+for cell in ws["B"]:
+    if cell.row != 1:
+        cell.number_format = "0.00"
 
 wb.save(output_file)
 
-print(f"\n✅ Done! File saved as {output_file}")
+print(f"\n✅ Done! File saved and formatted as {output_file}")

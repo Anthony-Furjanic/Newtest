@@ -1,0 +1,259 @@
+import os
+import re
+from datetime import datetime
+from tkinter import Tk, filedialog
+import pandas as pd
+import csv
+
+# ========= USER CONFIGURABLE SETTINGS ========= #
+
+DOMAIN_KEYWORDS = {
+    "peach": "Peachdomain",
+    "carrot": "Carrotdomain",
+    "cheese": "Cheesedomain",
+}
+
+EXCLUDE_PHRASES = ["apple pie", "cherry pie", "pumpkin pie"]
+
+OPPS_COLUMN_INDEX = 4       # 5th column: where "null"/exclude phrases live
+DISABLED_COLUMN_INDEX = 8   # 9th column: if equals "disabled" => Disabled bin
+
+# ============================================== #
+
+
+def normalize_name(text: str) -> str:
+    name = text.lower().replace("_", " ").replace("-", " ")
+    name = re.sub(r"\s+", " ", name).strip()
+    return name
+
+
+def detect_domain_from_sheet(sheet_name: str):
+    name = normalize_name(sheet_name)
+    for keyword, domain_name in DOMAIN_KEYWORDS.items():
+        if keyword in name:
+            return domain_name
+    return None
+
+
+def classify_row(row):
+    disabled_cell = str(row[DISABLED_COLUMN_INDEX]).strip().lower() if len(row) > DISABLED_COLUMN_INDEX else ""
+    if disabled_cell == "disabled":
+        return "disabled"
+
+    opps_cell = str(row[OPPS_COLUMN_INDEX]).strip().lower() if len(row) > OPPS_COLUMN_INDEX else ""
+    normalized = re.sub(r"[\s_-]+", " ", opps_cell)
+    if "null" in normalized or any(phrase.lower() in normalized for phrase in EXCLUDE_PHRASES):
+        return "opps"
+
+    return "kept"
+
+
+def process_dataframe(df, domain_name):
+    kept_full, opps_full, disabled_full = [], [], []
+    kept_intents, opps_intents, disabled_intents = [], [], []
+
+    for i, row in enumerate(df.values.tolist(), start=1):
+        if len(row) == 0 or not str(row[0]).startswith("#"):
+            continue
+
+        status = classify_row(row)
+        intent_name = str(row[1]).strip() if len(row) > 1 else ""
+
+        if status == "disabled":
+            disabled_full.append(row)
+            disabled_intents.append(intent_name)
+        elif status == "opps":
+            opps_full.append(row)
+            opps_intents.append(intent_name)
+        else:
+            kept_full.append(row)
+            kept_intents.append(intent_name)
+
+    return {
+        "domain": domain_name,
+        "kept_full": kept_full,
+        "opps_full": opps_full,
+        "disabled_full": disabled_full,
+        "kept_intents": kept_intents,
+        "opps_intents": opps_intents,
+        "disabled_intents": disabled_intents,
+    }
+
+
+def make_output_folder():
+    """Ask user for a parent directory and create a clean timestamped Output folder."""
+    Tk().withdraw()
+    parent = filedialog.askdirectory(title="Choose a parent folder for the Output folder")
+    if not parent:
+        print("No folder selected. Exiting.")
+        return None
+
+    base_name = "Output"
+    base_path = os.path.join(parent, base_name)
+
+    # Clean timestamp format: Output_2025-10-24_00h12m
+    if os.path.exists(base_path):
+        stamp = datetime.now().strftime("%Y-%m-%d_%Hh%Mm")
+        output_dir = f"{base_path}_{stamp}"
+    else:
+        output_dir = base_path
+
+    os.makedirs(output_dir, exist_ok=True)
+    return output_dir
+
+
+def pick_input_file():
+    Tk().withdraw()
+    file_path = filedialog.askopenfilename(
+        title="Select Excel file with domain sheets",
+        filetypes=[("Excel files", "*.xlsx")]
+    )
+    return file_path
+
+
+def write_tsvs(output_dir, results):
+    # --- Kept TSV ---
+    kept_tsv = os.path.join(output_dir, "intent_model-thresh.tsv")
+    with open(kept_tsv, "w", encoding="utf-8") as out:
+        out.write("====== INTENT SUMMARY ======\n")
+        for r in results:
+            kept_count = len(r["kept_intents"])
+            opps_count = len(r["opps_intents"])
+            disabled_count = len(r["disabled_intents"])
+            total = kept_count + opps_count + disabled_count
+            out.write(f"{r['domain']} — {kept_count} kept / {opps_count} opps / {disabled_count} disabled ({total} total)\n")
+        out.write("============================\n\n")
+
+        for r in results:
+            kept_count = len(r["kept_intents"])
+            out.write(f"{r['domain']} — {kept_count} kept\n")
+            out.write("---------------\n")
+            for intent in r["kept_intents"]:
+                out.write(intent + "\n")
+            out.write("\n")
+
+    # --- Opportunities TSV ---
+    opps_tsv = os.path.join(output_dir, "intent_model-opps.tsv")
+    with open(opps_tsv, "w", encoding="utf-8") as out:
+        out.write("====== OPPORTUNITIES SUMMARY ======\n")
+        for r in results:
+            out.write(f"{r['domain']}: {len(r['opps_intents'])} opps\n")
+        out.write("===================================\n\n")
+        for r in results:
+            out.write(f"\t\t{r['domain']} ({len(r['opps_intents'])} opps)\n")
+            for intent in r["opps_intents"]:
+                out.write(intent + "\n")
+            out.write("\n")
+
+    # --- Disabled TSV ---
+    disabled_tsv = os.path.join(output_dir, "intent_model-disabled.tsv")
+    with open(disabled_tsv, "w", encoding="utf-8") as out:
+        out.write("====== DISABLED SUMMARY ======\n")
+        for r in results:
+            out.write(f"{r['domain']}: {len(r['disabled_intents'])} disabled\n")
+        out.write("================================\n\n")
+        for r in results:
+            out.write(f"\t\t{r['domain']} ({len(r['disabled_intents'])} disabled)\n")
+            for intent in r["disabled_intents"]:
+                out.write(intent + "\n")
+            out.write("\n")
+
+    print(f"✅ TSVs written:\n  {kept_tsv}\n  {opps_tsv}\n  {disabled_tsv}")
+
+
+def write_excel(output_dir, results, overall_weighted_avg):
+    excel_path = os.path.join(output_dir, "intent_model_full.xlsx")
+
+    summary_rows = []
+    for r in results:
+        kept_count = len(r["kept_full"])
+        opps_count = len(r["opps_full"])
+        disabled_count = len(r["disabled_full"])
+        total = kept_count + opps_count + disabled_count
+        summary_rows.append([
+            r["domain"],
+            kept_count,
+            opps_count,
+            disabled_count,
+            total,
+            f"{r['avg_score']:.1f}"
+        ])
+
+    summary_df = pd.DataFrame(
+        summary_rows,
+        columns=["Domain", "Kept Rows", "Opps Rows", "Disabled Rows", "Total Rows", "Weighted Avg"]
+    )
+    summary_df.loc[len(summary_df.index)] = [
+        "Overall Weighted Avg (by kept rows)",
+        "",
+        "",
+        "",
+        "",
+        f"{overall_weighted_avg:.1f}",
+    ]
+
+    with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
+        summary_df.to_excel(writer, sheet_name="Summary", index=False)
+
+        for r in results:
+            intents_df = pd.DataFrame([row[1:] for row in r["kept_full"]])
+            opps_df = pd.DataFrame([row[1:] for row in r["opps_full"]])
+            dis_df = pd.DataFrame([row[1:] for row in r["disabled_full"]])
+
+            intents_df.to_excel(writer, sheet_name=f"{r['domain']} - Intents"[:31], index=False, header=False)
+            opps_df.to_excel(writer, sheet_name=f"{r['domain']} - Opportunities"[:31], index=False, header=False)
+            dis_df.to_excel(writer, sheet_name=f"{r['domain']} - Disabled"[:31], index=False, header=False)
+
+    print(f"✅ Excel workbook created: {excel_path}")
+
+
+def main():
+    output_dir = make_output_folder()
+    if not output_dir:
+        return
+
+    file_path = pick_input_file()
+    if not file_path:
+        print("No Excel file selected. Exiting.")
+        return
+
+    # Read all sheets
+    df_dict = pd.read_excel(file_path, sheet_name=None)
+    results = []
+
+    for sheet_name, df in df_dict.items():
+        domain = detect_domain_from_sheet(sheet_name)
+        if not domain:
+            domain = input(f"Could not detect domain for '{sheet_name}'. Enter domain name: ").strip() or "UnknownDomain"
+
+        buckets = process_dataframe(df, domain)
+        results.append(buckets)
+
+    # Prompt user for average scores
+    print("\nEnter the average score for each domain (as a percentage, e.g., 97.5):")
+    for r in results:
+        while True:
+            try:
+                avg_score = float(input(f"{r['domain']}: "))
+                r["avg_score"] = avg_score
+                break
+            except ValueError:
+                print("Please enter a valid number (e.g., 85.4)")
+
+    # Calculate overall weighted average
+    total_weight = sum(len(r["kept_intents"]) for r in results)
+    if total_weight > 0:
+        overall_weighted_avg = (
+            sum(r["avg_score"] * len(r["kept_intents"]) for r in results) / total_weight
+        )
+    else:
+        overall_weighted_avg = 0.0
+
+    write_tsvs(output_dir, results)
+    write_excel(output_dir, results, overall_weighted_avg)
+
+    print(f"\n✅ All outputs saved to: {output_dir}")
+
+
+if __name__ == "__main__":
+    main()
